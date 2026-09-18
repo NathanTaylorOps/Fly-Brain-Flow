@@ -1,0 +1,41 @@
+# Fly-Brain Flow
+
+*A crowd simulation where every agent is running a real fruit fly brain.*
+
+**Status:** planning done · M0 (plumbing) not started · **nothing runs yet**
+
+## What
+
+Scientists have mapped the complete nervous system of a fruit fly — 166,691 neurons and every connection between them — and put it online for free. I'm using it as the brain for a crowd: hundreds to thousands of simulated flies, each running the real wiring as its own live simulation, walking around a venue or a street map looking for food. Then I check whether the crowd behaves like real crowds and real traffic do — lanes forming, doorways clogging, phantom jams — against a standard crowd model running in the same space. And I can click on any fly and see what its brain is doing.
+
+Two ideas carry most of the design. The inspector is essentially a replay debugger for agents: record what each fly sensed, recompute any one brain on demand. And most of the engineering is about making thousands of real brains fit on one rented GPU.
+
+## Why
+
+To find out whether a real insect brain, used as a navigation controller and scaled to a crowd, does anything the simple models don't. If the answer is no, that's the result.
+
+## The plan
+
+It's long and deliberate, on purpose: **[docs/PLAN.md](docs/PLAN.md)**. Scope, data, the brain, what flies can sense, how the brain moves the body, the world, the inspector, where it runs, how I'll know if it works, licences, open questions, risks.
+
+## Milestones
+
+- [ ] **M0 — Plumbing.** Maps, physics, spawn/feed/leave, smell and wind, baseline agents, recorder, viewer — all on a toy brain. Tests pass.
+- [ ] **M1 — One real fly** finds a moved target. Calibration gate passed.
+- [ ] **M1.5 — Benchmark.** A measured number: how many full brains one GPU can run.
+- [ ] **M2 — Tens of flies.** Personalities, queuing, the 22-car ring-road test.
+- [ ] **M3 — Click any fly** in a recorded run and see its brain.
+- [ ] **M4 — The result.** Lane formation and the doorway test vs baseline, with numbers.
+- [ ] **M5 — Stretch.** Compare against a real dataset.
+
+**Next up:** M0, then the benchmark.
+
+## Running it
+
+Nothing to run yet. This section gets written when M0 lands.
+
+## Licence and credit
+
+Code is MIT. The brain data is MaleCNS (CC-BY, Janelia / Cambridge / MRC LMB / Google Research). Everything I've built on is listed in [ATTRIBUTION.md](ATTRIBUTION.md).
+
+Planned and drafted with AI assistance; the decisions are mine.

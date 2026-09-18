@@ -1,0 +1,5 @@
+# Pinned dataset versions. Filled in at first data pull. Never "latest".
+#
+# dataset      version        source                                   sha256 of downloaded files
+# MaleCNS      male-cns:v1.0  https://male-cns.janelia.org/download/   (pending)
+# FlyWire      (calibration only; not shipped)                          (pending)
