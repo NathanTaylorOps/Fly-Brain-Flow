@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flybrainflow"
+version = "0.0.1"
+description = "A crowd simulation where every agent is running a real fruit fly brain."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Nathan Taylor" }]
+dependencies = [
+    "numpy>=1.26",
+    "scipy>=1.11",
+    "matplotlib>=3.7",   # used for fast point-in-polygon only, not plotting
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+osm = ["osmnx>=1.9"]          # only for from_osm_bbox(); GeoJSON road files need nothing extra
+brain = ["torch>=2.2"]        # M1 onwards
+data = ["neuprint-python>=0.4", "pyarrow>=14"]
+
+[tool.setuptools.packages.find]
+include = ["flybrainflow*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,49 @@
+# Two streams walking through each other in a straight corridor.
+# The lane-formation test from docs/PLAN.md, at M0 scale.
+
+[scenario]
+name            = "corridor_bidirectional"
+seed            = 42
+duration_s      = 300
+scale_mode      = "pedestrian"      # "pedestrian" | "car"
+boundary_mode   = "open"            # "open" | "closed"
+timescale_ratio = 1.0               # brain ms per world ms
+
+[map]
+source          = "gen:corridor?length=40&width=5"   # or "venues/x.svg", "roads.geojson", "osm:N,S,E,W"
+walkable_grid_m = 0.1
+
+[wind]
+direction_deg = 0
+speed_mps     = 0.5
+
+[spawn]
+sources        = [[1.0, 2.5], [39.0, 2.5]]
+rate_per_s     = 1.5
+population_cap = 200
+
+[[targets]]
+kind           = "sugar"
+position       = [39.0, 2.5]
+slots          = 6
+feeding_time_s = 2.0
+odor_strength  = 1.0
+odor_range_m   = 30
+
+[[targets]]
+kind           = "sugar"
+position       = [1.0, 2.5]
+slots          = 6
+feeding_time_s = 2.0
+odor_strength  = 1.0
+odor_range_m   = 30
+
+[agents]
+personality_mix   = "uniform20"
+sensing_radius_m  = 3.0
+field_of_view_deg = 270
+radius_m          = 0.25
+max_speed_mps     = 1.3
+
+[baseline]
+enabled = true

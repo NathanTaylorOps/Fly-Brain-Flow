@@ -1,0 +1,33 @@
+# The Sugiyama ring-road test: fixed population, closed loop, no targets.
+# Car mode, 22 agents. Either a phantom jam appears or it doesn't.
+
+[scenario]
+name            = "ring_road_sugiyama"
+seed            = 7
+duration_s      = 600
+scale_mode      = "car"
+boundary_mode   = "closed"
+timescale_ratio = 1.0
+
+[map]
+source          = "gen:ring?radius=36.6&lane_width=3.5"   # 230 m circumference, as in the experiment
+walkable_grid_m = 0.25
+
+[wind]
+direction_deg = 0
+speed_mps     = 0.0
+
+[spawn]
+sources        = []                 # closed mode: population is placed at t=0, nobody arrives or leaves
+rate_per_s     = 0.0
+population_cap = 22
+
+[agents]
+personality_mix   = "uniform20"
+sensing_radius_m  = 15.0
+field_of_view_deg = 180
+radius_m          = 2.0
+max_speed_mps     = 8.0
+
+[baseline]
+enabled = true

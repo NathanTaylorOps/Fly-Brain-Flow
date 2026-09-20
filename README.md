@@ -2,7 +2,7 @@
 
 *A crowd simulation where every agent is running a real fruit fly brain.*
 
-**Status:** planning done · M0 (plumbing) not started · **nothing runs yet**
+**Status:** M0 (plumbing) in progress · map loader and scenario config done, 24 tests green · **nothing runs end-to-end yet**
 
 ## What
 
@@ -32,7 +32,14 @@ It's long and deliberate, on purpose: **[docs/PLAN.md](docs/PLAN.md)**. Scope, d
 
 ## Running it
 
-Nothing to run yet. This section gets written when M0 lands.
+Nothing runs end-to-end yet. What exists can be tested:
+
+```
+pip install -e '.[dev]'
+pytest
+```
+
+Maps can be built from a generator, an SVG or DXF floor plan, or a GeoJSON road file — see `flybrainflow/world/` and `scenarios/`.
 
 ## Licence and credit
 
