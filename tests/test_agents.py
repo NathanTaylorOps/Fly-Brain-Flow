@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from flybrainflow.agents import Population
+from flybrainflow.agents import IdAllocator, Population, TargetSlots, build_cohorts
 from flybrainflow.scenario import Scenario
 
 
@@ -19,6 +19,7 @@ def _scenario(**overrides):
             "targets", [{"position": [5.0, 1.0], "slots": 6, "feeding_time_s": 2.0}]
         ),
         "agents": overrides.pop("agents", {}),
+        "baseline": overrides.pop("baseline", {}),
     }
     return Scenario.from_dict(raw)
 
@@ -180,3 +181,80 @@ def test_freed_slot_can_be_reused():
     started = pop.feed(dt=0.0, capture_radius=0.5)
     assert started == [b]
     assert pop.slots_used == [1]
+
+
+def test_a_lone_population_defaults_to_the_brain_tag_and_owns_its_own_state():
+    sc = _scenario(rate_per_s=100.0, population_cap=1)
+    pop = Population.from_scenario(sc, rng=np.random.default_rng(0))
+    ids = pop.spawn(dt=1.0)
+    assert pop.agents[ids[0]].brain == "brain"
+
+
+def test_build_cohorts_makes_two_pools_when_baseline_is_enabled():
+    sc = _scenario(rate_per_s=100.0, population_cap=5, baseline={"enabled": True})
+    cohorts = build_cohorts(sc, rng=np.random.default_rng(0))
+    assert set(cohorts) == {"brain", "baseline"}
+    for tag, pop in cohorts.items():
+        pop.spawn(dt=1.0)
+        assert all(a.brain == tag for a in pop.agents.values())
+
+
+def test_build_cohorts_makes_one_pool_when_baseline_is_disabled():
+    sc = _scenario(rate_per_s=100.0, population_cap=5, baseline={"enabled": False})
+    cohorts = build_cohorts(sc, rng=np.random.default_rng(0))
+    assert set(cohorts) == {"brain"}
+
+
+def test_cohorts_share_agent_ids_without_colliding():
+    # Real gap, fixed: two independent `Population`s would each number their own agents from
+    # zero, so "agent 3" would mean two different flies depending which cohort's dict you looked
+    # it up in -- a problem the moment anything (a brain's per-agent state, a combined physics
+    # call) needs to index both cohorts together.
+    sc = _scenario(rate_per_s=100.0, population_cap=10, baseline={"enabled": True})
+    cohorts = build_cohorts(sc, rng=np.random.default_rng(0))
+    cohorts["brain"].spawn(dt=1.0)
+    cohorts["baseline"].spawn(dt=1.0)
+    brain_ids = set(cohorts["brain"].agents)
+    baseline_ids = set(cohorts["baseline"].agents)
+    assert brain_ids.isdisjoint(baseline_ids)
+    assert len(brain_ids) == 10 and len(baseline_ids) == 10
+
+
+def test_cohorts_share_target_slots_instead_of_each_getting_the_full_capacity():
+    # Real gap, fixed: two independent `Population`s would each track a target's slots for
+    # themselves, so a single-slot target could be double-booked -- one fly from each cohort,
+    # both "fed", when physically only one fly fits.
+    sc = _scenario(
+        rate_per_s=100.0,
+        population_cap=1,
+        targets=[{"position": [5.0, 1.0], "slots": 1, "feeding_time_s": 2.0}],
+        baseline={"enabled": True},
+    )
+    cohorts = build_cohorts(sc, rng=np.random.default_rng(0))
+    brain_ids = cohorts["brain"].spawn(dt=1.0)
+    baseline_ids = cohorts["baseline"].spawn(dt=1.0)
+    cohorts["brain"].set_positions(brain_ids, np.array([[5.0, 1.0]]))
+    cohorts["baseline"].set_positions(baseline_ids, np.array([[5.0, 1.0]]))
+
+    started_brain = cohorts["brain"].feed(dt=0.0, capture_radius=0.5)
+    started_baseline = cohorts["baseline"].feed(dt=0.0, capture_radius=0.5)
+    # Whichever cohort fed first claimed the target's one slot; the other must have been turned
+    # away, not double-booked into a second, nonexistent slot.
+    assert len(started_brain) + len(started_baseline) == 1
+    assert cohorts["brain"].slots_used == cohorts["baseline"].slots_used  # the same shared list
+
+
+def test_target_slots_and_id_allocator_can_still_be_built_and_passed_by_hand():
+    # `build_cohorts` is the normal path, but nothing stops wiring two `Population`s together
+    # manually with the same effect -- useful to pin down the contract these two small helper
+    # classes offer on their own, decoupled from `build_cohorts`'s own defaults.
+    sc = _scenario(rate_per_s=100.0, population_cap=3)
+    slots = TargetSlots(sc.targets)
+    ids = IdAllocator(start=100)
+    a = Population.from_scenario(sc, rng=np.random.default_rng(0), brain="a", slots=slots, ids=ids)
+    b = Population.from_scenario(sc, rng=np.random.default_rng(1), brain="b", slots=slots, ids=ids)
+    a.spawn(dt=1.0)
+    b.spawn(dt=1.0)
+    assert min(a.agents) >= 100
+    assert set(a.agents).isdisjoint(b.agents)
+    assert a.slots_used is b.slots_used
