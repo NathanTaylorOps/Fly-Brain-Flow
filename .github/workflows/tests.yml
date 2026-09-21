@@ -1,0 +1,25 @@
+yaml
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.11 is the declared floor (pyproject.toml's requires-python); 3.12 matches the
+        # devcontainer image; 3.14 matches what's actually shown up running in a live Codespace
+        # session so far -- covering all three catches a version-specific regression wherever it
+        # would actually bite, rather than just wherever development happens to be run.
+        python-version: ["3.11", "3.12", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: pip install -e '.[dev]'
+      - run: pytest
