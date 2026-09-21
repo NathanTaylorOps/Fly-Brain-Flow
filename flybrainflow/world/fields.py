@@ -104,12 +104,18 @@ class OdorField:
 
     # -- sampling -------------------------------------------------------
 
-    def sample(self, xy, kind: str | None = None) -> np.ndarray:
-        """Summed concentration at each point, over sources matching `kind` (or all sources)."""
+    def sample(self, xy, kind: str | None = None, source: OdorSource | None = None) -> np.ndarray:
+        """Summed concentration at each point, over sources matching `kind` (or all sources) by
+        default. Pass `source` instead (a specific `OdorSource` object, matched by identity) to
+        restrict to exactly *that one* plume -- see `gradient`'s docstring for why a fly steering
+        toward one committed target needs this instead of the kind-wide sum."""
         p = np.asarray(xy, float).reshape(-1, 2)
         total = np.zeros(len(p))
         for s in self.sources:
-            if kind is not None and s.kind != kind:
+            if source is not None:
+                if s is not source:
+                    continue
+            elif kind is not None and s.kind != kind:
                 continue
             total += self._plume(p, s)
         return total
@@ -122,18 +128,32 @@ class OdorField:
             out[s.kind] = out.get(s.kind, np.zeros(len(p))) + c
         return out
 
-    def gradient(self, xy, kind: str | None = None, eps: float | None = None) -> np.ndarray:
+    def gradient(
+        self, xy, kind: str | None = None, eps: float | None = None, source: OdorSource | None = None
+    ) -> np.ndarray:
         """(n, 2) finite-difference gradient of concentration, roughly pointing toward the nearest/strongest source.
 
         Default `eps` is 0.05 m in open (straight-line) mode. In occluded mode the field is only
         as fine as the map's grid, so `eps` defaults to 1.5 grid cells — smaller than that and two
         sample points can land in the same cell and give a false zero gradient right next to a wall.
+
+        Real bug, found and fixed: `kind` sums *every* source of that kind into one combined
+        plume, which is exactly right for "how strong does sugar smell overall" but wrong for "which
+        way should I walk" once two same-kind targets exist -- a fly that had committed (via
+        `TargetAssignment`) to a *far* sugar target still felt the combined gradient, which a
+        *near* sugar target (right where it spawned) completely dominated, since the near plume's
+        gradient totally swamps the far one's at any point closer to the near source. The result
+        was a fly that visibly spiralled around the near target's spawn point instead of walking
+        toward the one it had actually committed to -- see `ToyBrain._sense`'s own comment on this
+        for the full story, and `docs/JOURNAL.md`. Pass `source` (the exact `OdorSource` a fly has
+        committed to) to isolate that one plume instead of the kind-wide sum; `kind` remains for
+        the genuinely kind-wide question ("total ambient sugar smell here", not used by steering).
         """
         p = np.asarray(xy, float).reshape(-1, 2)
         if eps is None:
             eps = self.walkable_map.resolution * 1.5 if self.walkable_map is not None else 0.05
-        gx = (self.sample(p + [eps, 0.0], kind) - self.sample(p - [eps, 0.0], kind)) / (2 * eps)
-        gy = (self.sample(p + [0.0, eps], kind) - self.sample(p - [0.0, eps], kind)) / (2 * eps)
+        gx = (self.sample(p + [eps, 0.0], kind, source) - self.sample(p - [eps, 0.0], kind, source)) / (2 * eps)
+        gy = (self.sample(p + [0.0, eps], kind, source) - self.sample(p - [0.0, eps], kind, source)) / (2 * eps)
         return np.c_[gx, gy]
 
     def kinds(self) -> set[str]:

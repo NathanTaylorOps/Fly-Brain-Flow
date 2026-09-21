@@ -157,13 +157,16 @@ class ToyBrain:
             self.last_sense.pop(i, None)
         self._targets.forget(ids)
 
-    def desired_velocities(self, ids, positions, radii, max_speed_mps, personalities, odor_field, dt: float) -> np.ndarray:
+    def desired_velocities(
+        self, ids, positions, radii, max_speed_mps, personalities, odor_field, dt: float, preferred_targets: dict | None = None
+    ) -> np.ndarray:
         """One steering vector per id in `ids`, in the same order -- same contract as
         `Baseline.desired_velocities`, plus `personalities` (this fly's row into
         `self.personality_table`, e.g. `Agent.personality`), `odor_field` (a `world.fields.OdorField`
         built for the same map, so sensing is wall-aware/wind-bent exactly like a real fly's would
-        be) and `dt` (the leaky activity update needs real elapsed time, unlike `Baseline`'s
-        stateless formula)."""
+        be), `dt` (the leaky activity update needs real elapsed time, unlike `Baseline`'s stateless
+        formula), and `preferred_targets` (id -> target index, overriding nearest-distance
+        assignment for an id's first assignment only -- see `TargetAssignment.assign`)."""
         positions = np.asarray(positions, float).reshape(-1, 2)
         n = len(ids)
         if n == 0:
@@ -172,7 +175,7 @@ class ToyBrain:
         max_speed = np.broadcast_to(np.asarray(max_speed_mps, float), (n,))
         personalities = np.broadcast_to(np.asarray(personalities, int), (n,))
 
-        target_idx = self._targets.assign(ids, positions)
+        target_idx = self._targets.assign(ids, positions, preferred_targets)
         self._ensure_state(ids, positions, target_idx)
         heading = np.array([self._heading[i] for i in ids])
         heading_vec = np.c_[np.cos(heading), np.sin(heading)]
@@ -277,10 +280,19 @@ class ToyBrain:
         food_drive = np.zeros(n)
         for ti in np.unique(target_idx):
             rows = target_idx == ti
-            kind = self.targets[int(ti)].kind
             p = positions[rows]
-            conc = odor_field.sample(p, kind=kind)
-            grad = odor_field.gradient(p, kind=kind)
+            # Real bug, fixed: sampling by `kind` alone sums *every* target of that kind into one
+            # combined plume, so a fly committed to a far sugar target still felt (and got pulled
+            # off course by) a near sugar target's smell just because they're the same kind -- see
+            # `OdorField.gradient`'s docstring for the full story and how this fly's own
+            # `scenarios/corridor_bidirectional.toml` demo hit it. `odor_field.sources` is built
+            # 1:1, in order, from the same `scenario.targets` this brain's own `self.targets` came
+            # from (see `world.fields.from_scenario` and `Sim.__init__`), so index `ti` picks out
+            # exactly the one plume this fly has actually committed to.
+            source = odor_field.sources[int(ti)] if int(ti) < len(odor_field.sources) else None
+            kind = self.targets[int(ti)].kind
+            conc = odor_field.sample(p, kind=kind, source=source)
+            grad = odor_field.gradient(p, kind=kind, source=source)
             gnorm = np.linalg.norm(grad, axis=1)
             zero = gnorm < 1e-9
             direction = np.zeros_like(grad)

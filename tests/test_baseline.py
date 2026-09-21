@@ -63,6 +63,29 @@ def test_target_assignment_is_sticky():
     assert brain._assigned[0] == first_choice
 
 
+def test_preferred_targets_overrides_nearest_for_a_fresh_id_only():
+    # Real bug, fixed: a source co-located with (or simply closer to) the "wrong" target always
+    # won nearest-distance assignment, silently breaking any scenario built around a fly walking
+    # to the FAR target (see scenarios/corridor_bidirectional.toml's own comment). `preferred_targets`
+    # is the escape hatch -- confirm it actually wins for a first-seen id, and that (matching
+    # nearest-distance's own stickiness) it has no effect once an id is already assigned.
+    m = corridor(length=20, width=5)
+    brain = Baseline(m, target_positions=[[1.0, 2.5], [18.0, 2.5]])  # index 0 near, index 1 far
+    pos = np.array([[1.5, 2.5]])  # right next to target 0 -- nearest-distance would pick it
+
+    brain.desired_velocities(ids=[0], positions=pos, radii=0.25, max_speed_mps=1.3, preferred_targets={0: 1})
+    assert brain._assigned[0] == 1  # overridden to the far target despite being right next to the near one
+
+    # A second id with no entry in `preferred_targets` still gets ordinary nearest-distance.
+    brain.desired_velocities(ids=[1], positions=pos, radii=0.25, max_speed_mps=1.3, preferred_targets={0: 1})
+    assert brain._assigned[1] == 0
+
+    # Once assigned, `preferred_targets` doesn't retroactively change anything -- same stickiness
+    # as nearest-distance assignment (see test_target_assignment_is_sticky above).
+    brain.desired_velocities(ids=[0], positions=pos, radii=0.25, max_speed_mps=1.3, preferred_targets={0: 0})
+    assert brain._assigned[0] == 1
+
+
 def test_full_loop_a_spawned_fly_reaches_feeds_and_leaves():
     # Ties spawn/feed/leave (agents.py), steering (baseline.py) and movement (physics.py)
     # together end to end -- the same three-piece loop agents.py's own docstring describes.

@@ -59,6 +59,11 @@ class Agent:
     status: str = "walking"  # "walking" or "feeding"
     target_index: int | None = None
     feed_remaining_s: float = 0.0
+    # Which [[targets]] index this fly's spawn source pinned it to (`scenario.spawn.source_targets`),
+    # or None for the usual nearest-target pick every brain otherwise makes for itself. Set once at
+    # spawn and never changed -- see `SpawnConfig.source_targets`'s own docstring for why a plain
+    # "nearest" pick silently breaks a two-stream/crossing scenario.
+    preferred_target: int | None = None
 
 
 class TargetSlots:
@@ -179,12 +184,15 @@ class Population:
         new_ids: list[int] = []
         while self._spawn_accumulator >= 1.0 and len(self.agents) < sc.spawn.population_cap:
             self._spawn_accumulator -= 1.0
-            source = sc.spawn.sources[self.rng.integers(len(sc.spawn.sources))]
+            source_idx = int(self.rng.integers(len(sc.spawn.sources)))
+            source = sc.spawn.sources[source_idx]
+            preferred = sc.spawn.source_targets[source_idx] if sc.spawn.source_targets else None
             agent = Agent(
                 id=self._ids.next(),
                 position=np.array(source, float),
                 personality=int(self.rng.integers(self.n_personalities)),
                 brain=self.brain,
+                preferred_target=preferred,
             )
             self.agents[agent.id] = agent
             new_ids.append(agent.id)
@@ -211,19 +219,37 @@ class Population:
             if a is not None and a.status == "walking":
                 a.position = p
 
-    def feed(self, dt: float, capture_radius: float = DEFAULT_CAPTURE_RADIUS_M) -> list[int]:
+    def feed(
+        self,
+        dt: float,
+        capture_radius: float = DEFAULT_CAPTURE_RADIUS_M,
+        assigned_targets: dict[int, int] | None = None,
+    ) -> list[int]:
         """Start feeding for any walking agent within `capture_radius` of a target that still has
-        a free slot (first such target wins if more than one is in range), then advance every
-        currently-feeding agent's timer by `dt`. Returns the ids that started feeding this call.
-        Slot occupancy is checked against `self._slots`, which may be shared with another
-        `Population` walking the same venue -- so a target that another cohort's flies have filled
-        up correctly turns this cohort's flies away too."""
+        a free slot, then advance every currently-feeding agent's timer by `dt`. Returns the ids
+        that started feeding this call. Slot occupancy is checked against `self._slots`, which may
+        be shared with another `Population` walking the same venue -- so a target that another
+        cohort's flies have filled up correctly turns this cohort's flies away too.
+
+        `assigned_targets` (id -> target index, typically a brain's own `TargetAssignment.assigned`
+        dict, passed in by `Sim.tick`) restricts each agent to capture only at *its own* assigned
+        target -- an id absent from it falls back to the old "any target in range wins" check.
+        This matters whenever a spawn source sits within `capture_radius` of a target that isn't
+        the one that agent is actually walking to (see `SpawnConfig.source_targets`'s docstring):
+        real bug, found from the user's own report ("they are spawning right on the sugar") --
+        fixing *where a fly walks* (the `source_targets`/`preferred_target` work) wasn't enough on
+        its own, because this method used to grab any walking agent near *any* target regardless of
+        which one it was actually headed for, so a fly born next to the wrong target got scooped up
+        before it ever took a step. Without `assigned_targets` (e.g. tests that drive `Population`
+        directly with no brain in the loop) the old any-target-in-range behaviour is unchanged."""
         sc = self.scenario
         started: list[int] = []
         for a in self.agents.values():
             if a.status != "walking":
                 continue
-            for ti, t in enumerate(sc.targets):
+            own_target = assigned_targets.get(a.id) if assigned_targets is not None else None
+            candidates = [(own_target, sc.targets[own_target])] if own_target is not None else list(enumerate(sc.targets))
+            for ti, t in candidates:
                 if np.linalg.norm(a.position - np.array(t.position, float)) <= capture_radius:
                     if self._slots.try_occupy(ti):
                         a.status = "feeding"
@@ -232,6 +258,7 @@ class Population:
                         started.append(a.id)
                         break
                     # else: this target's full -- keep looking, there may be another in range
+                    # (only possible when falling back to the no-assignment any-target check)
         for a in self.agents.values():
             if a.status == "feeding":
                 a.feed_remaining_s -= dt

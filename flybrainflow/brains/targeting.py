@@ -30,13 +30,24 @@ class TargetAssignment:
         self.assigned: dict[int, int] = {}
         self.fields: dict[int, np.ndarray] = {}
 
-    def assign(self, ids, positions: np.ndarray) -> np.ndarray:
+    def assign(self, ids, positions: np.ndarray, preferred: dict | None = None) -> np.ndarray:
         """Target index per id, in the same order as `ids`. Deciding is a one-time event per id;
-        already-assigned ids just get their existing choice looked back up."""
+        already-assigned ids just get their existing choice looked back up.
+
+        `preferred` (id -> target index, or id absent/None meaning "no preference") overrides the
+        nearest-distance pick for that id's first assignment. This exists because "nearest" alone
+        silently breaks a scenario where a source sits right next to a target meant for a
+        *different* stream to walk to -- see `agents.SpawnConfig.source_targets`'s own docstring
+        for the full story (the two-stream corridor test is exactly this case). Once an id is
+        assigned, `preferred` has no further effect on it, same as nearest-distance assignment."""
         for i, p in zip(ids, positions):
             if i not in self.assigned:
-                dists = [np.linalg.norm(p - t) for t in self.target_positions]
-                self.assigned[i] = int(np.argmin(dists))
+                pref = None if preferred is None else preferred.get(i)
+                if pref is not None:
+                    self.assigned[i] = int(pref)
+                else:
+                    dists = [np.linalg.norm(p - t) for t in self.target_positions]
+                    self.assigned[i] = int(np.argmin(dists))
         return np.array([self.assigned[i] for i in ids], dtype=int)
 
     def field_for(self, target_index: int) -> np.ndarray:

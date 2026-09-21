@@ -1,5 +1,15 @@
 # Two streams walking through each other in a straight corridor.
 # The lane-formation test from docs/PLAN.md, at M0 scale.
+#
+# Real bug, found and fixed: the two [[targets]] below sit one at each end, so that each stream
+# has a target on the OPPOSITE side to walk across to. But every brain assigns a fresh fly to
+# whichever target is nearest by straight-line distance (see brains/targeting.py), and a fly
+# spawned right at x=1 always finds the x=1 target (0 m away) closer than the x=39 one (38 m
+# away) -- so without the explicit `target =` pin below, nobody ever actually crosses the
+# corridor; both streams just sit at their own end, never having gone anywhere. `target = <index>`
+# on each source (0-indexed into [[targets]], in file order) pins that source's flies to the FAR
+# target explicitly, sidestepping nearest-distance assignment for exactly the case it can't
+# handle. See `SpawnConfig.source_targets` in flybrainflow/scenario.py for the full explanation.
 
 [scenario]
 name            = "corridor_bidirectional"
@@ -18,7 +28,8 @@ direction_deg = 0
 speed_mps     = 0.5
 
 [spawn]
-sources        = [[1.0, 2.5], [39.0, 2.5]]
+# target = 0 -> the [[targets]] entry at x=39; target = 1 -> the one at x=1 (file order below).
+sources        = [{ position = [1.0, 2.5], target = 0 }, { position = [39.0, 2.5], target = 1 }]
 rate_per_s     = 1.5
 population_cap = 200
 

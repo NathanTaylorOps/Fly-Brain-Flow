@@ -4,7 +4,7 @@
 
 *A crowd simulation where every agent is running a real fruit fly brain.*
 
-**Status:** M0 (plumbing) **done** · map loader, scenario config, wall-aware odour, wall-bending wind, the 2D collision solver, the spawn/feed/leave agent lifecycle (fly-brained/baseline cohorts sharing one venue), the baseline steering model, the toy brain, the sim loop, the recorder and a 2D playback viewer all built and tested, 111 tests green · **still no real connectome — that's M1**
+**Status:** M0 (plumbing) **done** · map loader, scenario config, wall-aware odour, wall-bending wind, the 2D collision solver, the spawn/feed/leave agent lifecycle (fly-brained/baseline cohorts sharing one venue), the baseline steering model, the toy brain, the sim loop, the recorder and a 2D playback viewer all built and tested, 117 tests green · **still no real connectome — that's M1**
 
 ## What
 

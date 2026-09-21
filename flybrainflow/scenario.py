@@ -61,6 +61,20 @@ class SpawnConfig:
     sources: tuple[tuple[float, float], ...]
     rate_per_s: float = 1.0
     population_cap: int = 100
+    # Parallel to `sources`: which [[targets]] index a fly spawned at that source should head for,
+    # or None to fall back on the usual "nearest target, straight-line distance" pick every brain
+    # otherwise makes for itself (see `brains/targeting.py`). Nearest-target assignment silently
+    # breaks the moment a source and a target share (or are simply on the same side as) a spot --
+    # a fly spawned right next to "its own" nearby target will always prefer that one over a
+    # farther target on the other side of the venue, however far that farther target actually is,
+    # since "nearest" only ever compares distances. That's exactly the two-stream corridor test
+    # `world.map.corridor`'s own docstring names ("spawn at either end for the two-stream lane
+    # test"): two sources, two targets, one at each end, meant so each stream crosses to the far
+    # side -- which nearest-distance assignment can never produce on its own, because the target
+    # at a stream's OWN end is always the closer one. `source_targets` lets a scenario say "this
+    # source's flies go to targets[i]" explicitly, sidestepping nearest-distance entirely for that
+    # source, without changing anything for a scenario that never sets it.
+    source_targets: tuple[int | None, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -113,8 +127,8 @@ class Scenario:
         meta = _parse_meta(_section(raw, "scenario"))
         map_cfg = _parse_map(_section(raw, "map"))
         wind = _parse_wind(raw.get("wind", {}))
-        spawn = _parse_spawn(_section(raw, "spawn"), meta.boundary_mode)
         targets = _parse_targets(raw.get("targets", []), meta.boundary_mode)
+        spawn = _parse_spawn(_section(raw, "spawn"), meta.boundary_mode, n_targets=len(targets))
         agents = _parse_agents(raw.get("agents", {}))
         baseline = BaselineConfig(enabled=bool(raw.get("baseline", {}).get("enabled", True)))
         return cls(meta, map_cfg, wind, spawn, targets, agents, baseline)
@@ -210,11 +224,13 @@ def _parse_wind(d: dict[str, Any]) -> WindConfig:
     )
 
 
-def _parse_spawn(d: dict[str, Any], boundary_mode: str) -> SpawnConfig:
+def _parse_spawn(d: dict[str, Any], boundary_mode: str, n_targets: int = 0) -> SpawnConfig:
     raw_sources = d.get("sources", [])
     if boundary_mode == "open" and not raw_sources:
         raise ScenarioError("[spawn] 'sources' must list at least one entry point in open mode")
-    sources = tuple(_xy(s, "spawn", "sources") for s in raw_sources)
+    parsed = [_parse_spawn_source(s, n_targets) for s in raw_sources]
+    sources = tuple(p for p, _ in parsed)
+    source_targets = tuple(t for _, t in parsed)
     cap = int(d.get("population_cap", 100))
     if cap <= 0:
         raise ScenarioError(f"[spawn] 'population_cap' must be > 0, got {cap}")
@@ -222,7 +238,24 @@ def _parse_spawn(d: dict[str, Any], boundary_mode: str) -> SpawnConfig:
         sources=sources,
         rate_per_s=_positive(d.get("rate_per_s", 1.0), "spawn", "rate_per_s", strict=False),
         population_cap=cap,
+        source_targets=source_targets,
     )
+
+
+def _parse_spawn_source(s: Any, n_targets: int) -> tuple[tuple[float, float], int | None]:
+    """A source is either a plain `[x, y]` (nearest-target assignment, the default and the only
+    form until now) or `{position = [x, y], target = i}` to pin that source's flies to
+    `targets[i]` explicitly -- see `SpawnConfig.source_targets` for why that's needed at all."""
+    if isinstance(s, dict):
+        position = _xy(s.get("position"), "spawn", "sources.position")
+        target = s.get("target")
+        if target is None:
+            return position, None
+        target = int(target)
+        if not (0 <= target < n_targets):
+            raise ScenarioError(f"[spawn] 'sources' target index {target} is out of range for {n_targets} target(s)")
+        return position, target
+    return _xy(s, "spawn", "sources"), None
 
 
 def _parse_targets(items: list[dict[str, Any]], boundary_mode: str) -> tuple[TargetConfig, ...]:

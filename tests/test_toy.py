@@ -101,6 +101,39 @@ def test_turn_signal_never_exceeds_its_guard_rail():
             assert abs(delta) <= max_step_rad + 1e-9, f"fly {i} turned {np.degrees(delta):.1f} deg in one tick"
 
 
+def test_a_fly_reaches_its_committed_target_past_a_same_kind_decoy_at_spawn():
+    # Real bug, fixed: with two same-kind ("sugar") targets, `_sense` used to sample the
+    # *kind-wide* combined plume, so a fly committed (via `preferred_targets`) to the far target
+    # still felt -- and got pulled off course by -- a near, same-kind decoy sitting right at its
+    # own spawn point (see `world.fields.OdorField.gradient`'s docstring and
+    # scenarios/corridor_bidirectional.toml's own comment for the full story: this is the actual
+    # root cause behind "spawning right on the sugar" surviving the target-*assignment* fix).
+    m = corridor(length=20, width=5)
+    far_target = Target([18.0, 2.5])
+    decoy = Target([1.0, 2.5])  # co-located with the spawn point below -- same kind as far_target
+    odor = OdorField(
+        Wind(),
+        [
+            OdorSource(kind=far_target.kind, position=far_target.position, strength=1.0, range_m=60.0),
+            OdorSource(kind=decoy.kind, position=decoy.position, strength=1.0, range_m=60.0),
+        ],
+        walkable_map=m,
+    )
+    brain = ToyBrain(m, [far_target, decoy], scenario_seed=0)
+    pos = np.array([[1.0, 2.5]])  # spawns exactly on top of the decoy
+    reached = False
+    for _ in range(1200):
+        vel = brain.desired_velocities(
+            [0], pos, radii=0.25, max_speed_mps=1.3, personalities=[0], odor_field=odor, dt=0.05,
+            preferred_targets={0: 0},  # commit to far_target (index 0), not the nearer decoy
+        )
+        pos, _ = physics_step(pos, vel, radii=0.25, dt=0.05, walkable_map=m, max_speed_mps=1.3)
+        if np.linalg.norm(pos[0] - np.array(far_target.position)) < 1.0:
+            reached = True
+            break
+    assert reached, f"fly never escaped the decoy's plume, ended at {pos[0]}"
+
+
 def test_forget_releases_all_three_per_agent_dicts():
     m = corridor(length=10, width=5)
     target = Target([8.0, 2.5])

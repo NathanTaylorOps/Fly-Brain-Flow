@@ -94,7 +94,14 @@ class Sim:
                 offset += n
 
         for tag, pop in self.cohorts.items():
-            pop.feed(dt)  # default capture radius -- no scenario-level dial for this exists yet
+            # `_targets.assigned` (id -> committed target index) is the same dict `_steer` just
+            # used this tick to route this cohort's flies -- passing it to `feed` means an agent
+            # can only be captured at the target it's actually walking to, not any target that
+            # happens to be within capture radius (see `Population.feed`'s own docstring for the
+            # bug this fixes: a fly spawned right next to the *other* stream's target used to be
+            # scooped up on tick one, before it ever took a step toward its own).
+            assigned = self.brains[tag]._targets.assigned
+            pop.feed(dt, assigned_targets=assigned)  # default capture radius -- no scenario dial yet
             left = pop.leave()
             if left:
                 self.brains[tag].forget(left)
@@ -112,11 +119,16 @@ class Sim:
         that grows a branch, not every caller of `Sim`."""
         sc = self.scenario
         brain = self.brains[tag]
+        pop = self.cohorts[tag]
         radii = np.full(len(ids), sc.agents.radius_m)
+        # A source's `source_targets` pin (see `agents.SpawnConfig`) travels with the agent as
+        # `Agent.preferred_target`; only ids that actually have one need to be in this dict, and
+        # an id with no preference is simply absent -- `TargetAssignment.assign` treats absent and
+        # None the same way (fall back to nearest).
+        preferred = {i: pop.agents[i].preferred_target for i in ids if pop.agents[i].preferred_target is not None}
         if isinstance(brain, ToyBrain):
-            pop = self.cohorts[tag]
             personalities = [pop.agents[i].personality for i in ids]
             return brain.desired_velocities(
-                ids, positions, radii, sc.agents.max_speed_mps, personalities, self.odor_field, dt
+                ids, positions, radii, sc.agents.max_speed_mps, personalities, self.odor_field, dt, preferred
             )
-        return brain.desired_velocities(ids, positions, radii, sc.agents.max_speed_mps)
+        return brain.desired_velocities(ids, positions, radii, sc.agents.max_speed_mps, preferred)

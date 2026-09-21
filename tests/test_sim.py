@@ -116,6 +116,47 @@ def test_forgetting_a_left_agent_actually_reaches_its_brain():
     assert len(sim.cohorts["brain"].agents) == 0
 
 
+def test_source_targets_makes_two_streams_actually_cross_the_corridor():
+    # Real bug, fixed: corridor_bidirectional.toml's two sources sat right next to a target each
+    # (a "two-stream lane test"), so nearest-distance assignment always sent every fly straight
+    # back to its own end -- nobody ever crossed. `source_targets` pins each source to the FAR
+    # target instead. This is the sim-level proof it actually works: flies born at x=1 should be
+    # assigned target 0 (at x=39, per this scenario's source_targets) and get moving in the +x
+    # direction, and vice versa for flies born at x=39 -- and, over a real run, a growing number of
+    # agents should be genuinely present in the middle of the corridor (which never happened
+    # before this fix; see docs/JOURNAL.md).
+    sc = Scenario.from_dict(
+        {
+            "scenario": {"name": "t", "boundary_mode": "open", "seed": 5},
+            "map": {"source": "gen:corridor?length=40&width=5"},
+            "spawn": {
+                "sources": [
+                    {"position": [1.0, 2.5], "target": 0},
+                    {"position": [39.0, 2.5], "target": 1},
+                ],
+                "rate_per_s": 3.0,
+                "population_cap": 40,
+            },
+            "targets": [
+                {"kind": "sugar", "position": [39.0, 2.5], "slots": 6, "feeding_time_s": 2.0},
+                {"kind": "sugar", "position": [1.0, 2.5], "slots": 6, "feeding_time_s": 2.0},
+            ],
+            "baseline": {"enabled": False},
+        }
+    )
+    sim = Sim.from_scenario(sc, rng=np.random.default_rng(5))
+    mid_counts = []
+    for tick in range(600):
+        sim.tick(0.1)
+        ids = sim.cohorts["brain"].walking_ids()
+        if ids and tick % 100 == 99:
+            xs = sim.cohorts["brain"].positions(ids)[:, 0]
+            mid_counts.append(int(np.sum((xs > 10) & (xs < 30))))
+    # Some agents should genuinely be mid-corridor -- impossible if everyone just walked straight
+    # back to their own end's target, which is exactly what the pre-fix nearest-distance bug did.
+    assert max(mid_counts) > 0, "no agent ever reached the middle of the corridor -- streams aren't crossing"
+
+
 def test_a_dense_bottleneck_keeps_agents_from_both_cohorts_reasonably_separated():
     # Cross-cohort avoidance is the whole point of running them through one shared physics call --
     # if a fly-brained and a baseline agent could walk through each other, the "same venue" claim

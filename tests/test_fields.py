@@ -198,6 +198,34 @@ def test_wind_alignment_uses_the_bent_path_not_a_straight_line():
     assert abs(geo_dir[1] - straight_unit[1]) > 0.1  # meaningfully different from the naive bearing
 
 
+def test_source_param_isolates_one_plume_from_a_same_kind_sum():
+    # Real bug, fixed: two same-kind sources used to always sum into one combined plume for
+    # `kind=`, so a fly that had committed to the far one still felt (and was pulled off course
+    # by) the near one's smell purely because they're the same kind -- see `gradient`'s own
+    # docstring and `ToyBrain._sense` for the full story (this is the root cause behind
+    # scenarios/corridor_bidirectional.toml's "spawning right on the sugar" symptom persisting
+    # even after target *assignment* was fixed). `source` must isolate exactly one plume.
+    near = OdorSource(kind="sugar", position=(0, 0), strength=1.0, range_m=30)
+    far = OdorSource(kind="sugar", position=(38, 0), strength=1.0, range_m=30)
+    field = OdorField(Wind(), [far, near])  # order shouldn't matter -- identity picks the source
+    query = [[1.0, 0.0]]  # right next to `near`, far from `far`
+
+    combined = field.sample(query, kind="sugar")[0]
+    far_only = field.sample(query, source=far)[0]
+    near_only = field.sample(query, source=near)[0]
+    assert abs(combined - (far_only + near_only)) < 1e-9  # kind-wide sum is genuinely the two added
+    assert far_only < near_only  # confirms `near` is the one dominating the combined reading
+    assert far_only < 0.3  # this point is 38m from `far` with only a 30m range -- weak on its own
+    assert near_only > 0.9  # ...compared to `near`, which this point is standing right next to
+
+    # The gradient near `near` is completely dominated by `near` itself in the kind-wide sum, but
+    # isolating `far` gives the gradient that actually, correctly, points toward `far` (+x) instead.
+    g_far_only = field.gradient(query, source=far)[0]
+    assert g_far_only[0] > 0  # +x, correctly toward the far source
+    g_combined = field.gradient(query, kind="sugar")[0]
+    assert g_combined[0] < 0  # dominated by `near`: pulls back toward x=0, the wrong direction
+
+
 def test_from_scenario_builds_matching_sources():
     import tempfile
     from pathlib import Path

@@ -57,9 +57,13 @@ class Baseline:
         self._assigned = self._targets.assigned
         self._fields = self._targets.fields
 
-    def desired_velocities(self, ids, positions, radii, max_speed_mps) -> np.ndarray:
+    def desired_velocities(self, ids, positions, radii, max_speed_mps, preferred_targets: dict | None = None) -> np.ndarray:
         """One steering vector per id in `ids`, in the same order. `positions`/`radii` line up
-        with `ids` the same way `world.physics.step()` expects them."""
+        with `ids` the same way `world.physics.step()` expects them.
+
+        `preferred_targets` (id -> target index) overrides nearest-distance assignment for an id's
+        *first* assignment only -- see `TargetAssignment.assign`'s own docstring for why nearest
+        alone isn't always enough. Omit it (the default) for ordinary nearest-target behaviour."""
         positions = np.asarray(positions, float).reshape(-1, 2)
         n = len(ids)
         if n == 0:
@@ -67,7 +71,7 @@ class Baseline:
         radii = np.broadcast_to(np.asarray(radii, float), (n,))
         max_speed = np.broadcast_to(np.asarray(max_speed_mps, float), (n,))
 
-        target_idx = self._assign(ids, positions)
+        target_idx = self._assign(ids, positions, preferred_targets)
         goal_dir = self._goal_direction(target_idx, positions)
         social = agent_repulsion(positions, radii)
         wall = wall_repulsion(self.map, positions)
@@ -90,8 +94,8 @@ class Baseline:
 
     # -- internals ------------------------------------------------------
 
-    def _assign(self, ids, positions) -> np.ndarray:
-        return self._targets.assign(ids, positions)
+    def _assign(self, ids, positions, preferred_targets: dict | None = None) -> np.ndarray:
+        return self._targets.assign(ids, positions, preferred_targets)
 
     def _goal_direction(self, target_idx: np.ndarray, positions: np.ndarray) -> np.ndarray:
         """Unit vector at each position pointing toward decreasing geodesic distance to its
