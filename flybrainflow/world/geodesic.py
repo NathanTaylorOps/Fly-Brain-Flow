@@ -83,3 +83,28 @@ def sample_field(m: WalkableMap, field: np.ndarray, xy) -> np.ndarray:
     ix = np.clip(ix, 0, m.nx - 1)
     iy = np.clip(iy, 0, m.ny - 1)
     return field[iy, ix]
+
+
+def gradient_direction(m: WalkableMap, field: np.ndarray, xy) -> np.ndarray:
+    """Unit vector at each point, pointing toward increasing `field` value -- via central finite
+    differences on top of `sample_field`, so it inherits the same wall-aware snapping rather than
+    reading straight through a boundary. Used anywhere something needs "which way, along the
+    actual walkable geometry" instead of a straight-line bearing: away from an odour source
+    (`world.fields.OdorField`), downhill toward a target (`brains.baseline.Baseline`, negate this),
+    or the same for a toy/real brain's own steering. Zero at the field's own extremum, or -- this
+    is the one that isn't obvious -- at a point with no walkable path to the source/target at all:
+    `field` is `np.inf` there, so a naive `inf - inf` finite difference gives `nan`, and `nan <
+    anything` is `False` in numpy, so a naive "is the gradient basically zero" check silently lets
+    that `nan` through as if it were a real direction instead of catching it. Checking the point's
+    own value is finite first heads that off before it can happen."""
+    eps = m.resolution
+    p = np.asarray(xy, float).reshape(-1, 2)
+    here = sample_field(m, field, p)
+    gx = sample_field(m, field, p + [eps, 0.0]) - sample_field(m, field, p - [eps, 0.0])
+    gy = sample_field(m, field, p + [0.0, eps]) - sample_field(m, field, p - [0.0, eps])
+    grad = np.c_[gx, gy] / (2 * eps)
+    norm = np.linalg.norm(grad, axis=1)
+    unusable = ~np.isfinite(here) | ~np.isfinite(norm) | (norm < 1e-9)
+    unit = np.zeros_like(grad)
+    unit[~unusable] = grad[~unusable] / norm[~unusable, None]
+    return unit

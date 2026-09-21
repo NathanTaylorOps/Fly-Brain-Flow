@@ -41,6 +41,7 @@ import numpy as np
 
 from .airflow import AirflowField
 from .geodesic import geodesic_distance_field
+from .geodesic import gradient_direction as _geo_gradient_direction
 from .geodesic import sample_field as _sample_geo_field
 
 # How much the wind stretches (downwind) or compresses (upwind) the plume's
@@ -138,6 +139,17 @@ class OdorField:
     def kinds(self) -> set[str]:
         return {s.kind for s in self.sources}
 
+    def local_wind(self, xy) -> np.ndarray:
+        """(n, 2) wind velocity at each point -- the real, bent local value when an airflow field
+        was given, otherwise the single global wind vector broadcast to every point. Public so
+        anything that needs "which way is the air actually moving here" (a brain's own wind
+        sensing, say -- Johnston's organ in the real neuron table) can reuse the exact same
+        computation `_plume` uses internally, rather than re-deriving it."""
+        p = np.asarray(xy, float).reshape(-1, 2)
+        if self.airflow is not None:
+            return self.airflow.velocity_at(p, self.wind.direction_deg, self.wind.speed_mps)
+        return np.tile(self.wind.vector, (len(p), 1))
+
     # -- internals --------------------------------------------------------
 
     def _plume(self, p: np.ndarray, s: OdorSource) -> np.ndarray:
@@ -159,18 +171,18 @@ class OdorField:
             else:
                 with np.errstate(invalid="ignore", divide="ignore"):
                     unit_d = np.divide(d, straight_r[:, None], out=np.zeros_like(d), where=straight_r[:, None] > 0)
-            if self.airflow is not None:
-                local_wind = self.airflow.velocity_at(p, self.wind.direction_deg, self.wind.speed_mps)
-                local_speed = np.linalg.norm(local_wind, axis=1)
-                with np.errstate(invalid="ignore", divide="ignore"):
-                    local_unit = np.divide(
-                        local_wind, local_speed[:, None], out=np.zeros_like(local_wind), where=local_speed[:, None] > 0
-                    )
-                alignment = np.einsum("ij,ij->i", unit_d, local_unit)
-                scale = np.clip(1.0 + WIND_STRETCH * local_speed * alignment, MIN_SCALE, MAX_SCALE)
-            else:
-                alignment = unit_d @ self.wind.unit  # +1 fully downwind, -1 fully upwind
-                scale = np.clip(1.0 + WIND_STRETCH * self.wind.speed_mps * alignment, MIN_SCALE, MAX_SCALE)
+            # One formula either way: without an airflow field, `local_wind` below is just the
+            # single global vector broadcast to every point, which makes this mathematically the
+            # same as the old airflow-less special case (alignment against `self.wind.unit` at a
+            # constant `self.wind.speed_mps`) -- so there's no separate branch to keep in sync.
+            local_wind = self.local_wind(p)
+            local_speed = np.linalg.norm(local_wind, axis=1)
+            with np.errstate(invalid="ignore", divide="ignore"):
+                local_unit = np.divide(
+                    local_wind, local_speed[:, None], out=np.zeros_like(local_wind), where=local_speed[:, None] > 0
+                )
+            alignment = np.einsum("ij,ij->i", unit_d, local_unit)  # +1 fully downwind, -1 fully upwind
+            scale = np.clip(1.0 + WIND_STRETCH * local_speed * alignment, MIN_SCALE, MAX_SCALE)
         else:
             scale = np.ones_like(straight_r)
         eff_range = max(s.range_m, 1e-6) * scale
@@ -182,22 +194,8 @@ class OdorField:
 
     def _geodesic_direction(self, p: np.ndarray, s: OdorSource) -> np.ndarray:
         """Unit vector at each point, pointing along the shortest walkable path away from `s` --
-        the wall-aware equivalent of the straight-line `(p - src) / |p - src|` used in open mode.
-        Same finite-difference-on-the-distance-field trick as `brains.baseline`'s goal steering."""
-        fld = self._geo_field(s)
-        eps = self.walkable_map.resolution
-        gx = _sample_geo_field(self.walkable_map, fld, p + [eps, 0.0]) - _sample_geo_field(
-            self.walkable_map, fld, p - [eps, 0.0]
-        )
-        gy = _sample_geo_field(self.walkable_map, fld, p + [0.0, eps]) - _sample_geo_field(
-            self.walkable_map, fld, p - [0.0, eps]
-        )
-        grad = np.c_[gx, gy] / (2 * eps)  # points toward increasing distance, i.e. away from the source
-        norm = np.linalg.norm(grad, axis=1)
-        zero = norm < 1e-9  # at the source itself, or no walkable path to it at all
-        unit = np.zeros_like(grad)
-        unit[~zero] = grad[~zero] / norm[~zero, None]
-        return unit
+        the wall-aware equivalent of the straight-line `(p - src) / |p - src|` used in open mode."""
+        return _geo_gradient_direction(self.walkable_map, self._geo_field(s), p)
 
     def _geo_field(self, s: OdorSource) -> np.ndarray:
         cached = self._geo_cache.get(id(s))

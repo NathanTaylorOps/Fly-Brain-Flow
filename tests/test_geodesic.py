@@ -2,8 +2,8 @@
 
 import numpy as np
 
-from flybrainflow.world.geodesic import geodesic_distance_field, sample_field
-from flybrainflow.world.map import bottleneck, corridor, room_with_exit
+from flybrainflow.world.geodesic import geodesic_distance_field, gradient_direction, sample_field
+from flybrainflow.world.map import WalkableMap, bottleneck, corridor, room_with_exit
 
 
 def test_open_corridor_matches_straight_line():
@@ -56,12 +56,28 @@ def test_unreachable_cell_is_infinite():
     assert np.isfinite(field[field != np.inf]).all()
 
 
+def test_gradient_direction_is_zero_not_nan_at_an_unreachable_point():
+    # Real bug found on review: a point with no walkable path to the source has field value
+    # np.inf, so a naive finite-difference gradient there is `inf - inf` = nan -- and `nan < eps`
+    # is False in numpy, so a naive "is this basically flat" check lets that nan through as if it
+    # were a real direction. Two separate walkable islands, several cells apart (no possible path
+    # between them at all, not just a blocked one), pins this down directly.
+    mask = np.zeros((5, 12), dtype=bool)
+    mask[:, 0:3] = True  # left island -- the source lives here
+    mask[:, 9:12] = True  # right island -- completely unreachable from the left
+    m = WalkableMap.from_mask(mask, resolution=1.0, origin=(0.0, 0.0))
+    field = geodesic_distance_field(m, (1.0, 2.0))  # inside the left island
+    assert not np.isfinite(field[2, 10])  # confirms the two islands really are disconnected
+
+    direction = gradient_direction(m, field, [[10.0, 2.0]])  # inside the right, unreachable island
+    assert np.all(np.isfinite(direction))
+    assert np.allclose(direction, [[0.0, 0.0]])
+
+
 def test_diagonal_corner_cutting_is_disallowed():
     # Build a 3x3 mask with a single-cell diagonal "doorway" between two walls: cell (0,0) walkable,
     # (1,1) walkable, but (0,1) and (1,0) are walls -- a true diagonal-only gap should NOT be crossable,
     # matching how a real wall corner blocks a shortcut.
-    from flybrainflow.world.map import WalkableMap
-
     mask = np.array(
         [
             [True, False, True],

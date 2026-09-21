@@ -15,5 +15,6 @@ comparison a comparison of steering decisions, not of two different simulators.
 from __future__ import annotations
 
 from .baseline import Baseline
+from .toy import ToyBrain, placeholder_personality_table
 
-__all__ = ["Baseline"]
+__all__ = ["Baseline", "ToyBrain", "placeholder_personality_table"]

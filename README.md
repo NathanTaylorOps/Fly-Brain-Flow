@@ -4,7 +4,7 @@
 
 *A crowd simulation where every agent is running a real fruit fly brain.*
 
-**Status:** M0 (plumbing) in progress · map loader, scenario config, wall-aware odour, wall-bending wind, the 2D collision solver, the spawn/feed/leave agent lifecycle and the baseline steering model done, 78 tests green · **nothing runs end-to-end yet**
+**Status:** M0 (plumbing) in progress · map loader, scenario config, wall-aware odour, wall-bending wind, the 2D collision solver, the spawn/feed/leave agent lifecycle, the baseline steering model and the toy brain done, 87 tests green · **nothing runs end-to-end yet**
 
 ## What
 
@@ -41,7 +41,7 @@ pip install -e '.[dev]'
 pytest
 ```
 
-Maps can be built from a generator, an SVG or DXF floor plan, or a GeoJSON road file — see `flybrainflow/world/` and `scenarios/`. Odour plumes (movable, per-target, wall-aware) live in `flybrainflow/world/fields.py`; wall-routing for odour is `geodesic.py`; wind that actually bends around obstacles and speeds up through gaps (potential flow, not real turbulence) is `airflow.py`; the 2D circle-collision solver that actually moves agents — the same one for fly-brained and baseline agents alike — is `physics.py`. The agent lifecycle (spawning at entry points up to a population cap, feeding at a target until its slot frees up, leaving) lives in `flybrainflow/agents.py`, for open-boundary scenarios only — the closed/ring-road population setup is a separate M2 task. The standard-crowd-model reference this project measures the real fly brain against — goal-seeking along the wall-aware geodesic field, with social-force-style pedestrian and wall repulsion — is `flybrainflow/brains/baseline.py`; it moves through the same `physics.step()` fly-brained agents will eventually use too, so the comparison is fair.
+Maps can be built from a generator, an SVG or DXF floor plan, or a GeoJSON road file — see `flybrainflow/world/` and `scenarios/`. Odour plumes (movable, per-target, wall-aware) live in `flybrainflow/world/fields.py`; wall-routing for odour is `geodesic.py`; wind that actually bends around obstacles and speeds up through gaps (potential flow, not real turbulence) is `airflow.py`; the 2D circle-collision solver that actually moves agents — the same one for fly-brained and baseline agents alike — is `physics.py`. The agent lifecycle (spawning at entry points up to a population cap, feeding at a target until its slot frees up, leaving) lives in `flybrainflow/agents.py`, for open-boundary scenarios only — the closed/ring-road population setup is a separate M2 task. The standard-crowd-model reference this project measures the real fly brain against — goal-seeking along the wall-aware geodesic field, with social-force-style pedestrian and wall repulsion — is `flybrainflow/brains/baseline.py`. The toy brain — a small fake-neuron stand-in for the real 166k-neuron connectome, built so the surrounding plumbing gets debugged before the real dataset lands — is `flybrainflow/brains/toy.py`; both brains move through the same `physics.step()`, so the eventual comparison is of steering decisions, not of two different simulators.
 
 ## Licence and credit
 

@@ -32,20 +32,11 @@ target simply queues near it, held back by the pedestrian-repulsion term and, as
 from __future__ import annotations
 
 import numpy as np
-from scipy.spatial import cKDTree
 
-from ..world.geodesic import geodesic_distance_field, sample_field
+from ..world.geodesic import gradient_direction
 from ..world.map import WalkableMap
-
-# Helbing-style exponential repulsion constants: A is the strength at contact, B the range over
-# which it decays. Not fit to any dataset -- reasonable defaults for human-scale agents, tunable
-# once real crowd footage or the M4 lane-formation test gives something to calibrate against.
-AGENT_REPULSION_A = 2.0
-AGENT_REPULSION_B = 0.3
-AGENT_REPULSION_CUTOFF_M = 3.0
-WALL_REPULSION_A = 2.0
-WALL_REPULSION_B = 0.3
-WALL_REPULSION_CUTOFF_M = 1.5
+from .repulsion import agent_repulsion, wall_repulsion
+from .targeting import TargetAssignment
 
 
 class Baseline:
@@ -55,11 +46,16 @@ class Baseline:
 
     def __init__(self, walkable_map: WalkableMap, target_positions):
         self.map = walkable_map
-        self.target_positions = [np.array(t, float) for t in target_positions]
-        if not self.target_positions:
-            raise ValueError("Baseline needs at least one target position to steer toward")
-        self._fields: dict[int, np.ndarray] = {}
-        self._assigned: dict[int, int] = {}  # agent id -> target index; released by `forget()`
+        try:
+            self._targets = TargetAssignment(walkable_map, target_positions)
+        except ValueError:
+            raise ValueError("Baseline needs at least one target position to steer toward") from None
+        self.target_positions = self._targets.target_positions
+        # Same dict objects as `self._targets.{assigned,fields}`, not copies -- kept as direct
+        # attributes because existing tests (and any external code) already reach in as
+        # `brain._assigned`; `self._targets` is the actual implementation underneath.
+        self._assigned = self._targets.assigned
+        self._fields = self._targets.fields
 
     def desired_velocities(self, ids, positions, radii, max_speed_mps) -> np.ndarray:
         """One steering vector per id in `ids`, in the same order. `positions`/`radii` line up
@@ -73,8 +69,8 @@ class Baseline:
 
         target_idx = self._assign(ids, positions)
         goal_dir = self._goal_direction(target_idx, positions)
-        social = _agent_repulsion(positions, radii)
-        wall = _wall_repulsion(self.map, positions)
+        social = agent_repulsion(positions, radii)
+        wall = wall_repulsion(self.map, positions)
 
         raw = goal_dir * max_speed[:, None] + social + wall
         speed = np.linalg.norm(raw, axis=1)
@@ -90,97 +86,22 @@ class Baseline:
         actually alive at once, which adds up over a long-running or live session. Call this with
         whatever `Population.leave()` (or any other removal) returns, each tick; forgetting an id
         that's still walking is harmless -- it's just reassigned the next time it's seen."""
-        for i in ids:
-            self._assigned.pop(i, None)
+        self._targets.forget(ids)
 
     # -- internals ------------------------------------------------------
 
     def _assign(self, ids, positions) -> np.ndarray:
-        """Nearest target by straight-line distance, decided once per id and kept from then on."""
-        for i, p in zip(ids, positions):
-            if i not in self._assigned:
-                dists = [np.linalg.norm(p - t) for t in self.target_positions]
-                self._assigned[i] = int(np.argmin(dists))
-        return np.array([self._assigned[i] for i in ids], dtype=int)
-
-    def _field_for(self, target_index: int) -> np.ndarray:
-        if target_index not in self._fields:
-            self._fields[target_index] = geodesic_distance_field(
-                self.map, self.target_positions[target_index]
-            )
-        return self._fields[target_index]
+        return self._targets.assign(ids, positions)
 
     def _goal_direction(self, target_idx: np.ndarray, positions: np.ndarray) -> np.ndarray:
         """Unit vector at each position pointing toward decreasing geodesic distance to its
         assigned target -- "downhill" on the shortest-walking-distance field, so it bends around
         whatever's in the way instead of aiming through it."""
-        eps = self.map.resolution
         out = np.zeros_like(positions)
         for ti in np.unique(target_idx):
             rows = target_idx == ti
-            field = self._field_for(int(ti))
-            p = positions[rows]
-            here = sample_field(self.map, field, p)
-            gx = sample_field(self.map, field, p + [eps, 0.0]) - sample_field(self.map, field, p - [eps, 0.0])
-            gy = sample_field(self.map, field, p + [0.0, eps]) - sample_field(self.map, field, p - [0.0, eps])
-            grad = np.c_[gx, gy] / (2 * eps)
-            # Distance decreases toward the target, so head the opposite way from its gradient.
-            direction = -grad
-            norm = np.linalg.norm(direction, axis=1)
-            unreachable = ~np.isfinite(here) | (norm < 1e-9)
-            safe_norm = np.where(unreachable, 1.0, norm)
-            unit = direction / safe_norm[:, None]
-            unit[unreachable] = 0.0  # already at the target, or no walkable path to it at all
-            out[rows] = unit
+            field = self._targets.field_for(int(ti))
+            # Distance decreases toward the target, so head the opposite way from the field's own
+            # gradient (which points toward increasing distance, i.e. away from the target).
+            out[rows] = -gradient_direction(self.map, field, positions[rows])
         return out
-
-
-def _agent_repulsion(positions: np.ndarray, radii: np.ndarray) -> np.ndarray:
-    """Helbing-style exponential push away from nearby agents: `A * exp((r_ij - d_ij) / B)`,
-    strongest at contact and fading smoothly with distance rather than switching on at a hard
-    boundary -- the softer, earlier nudge that produces lane-splitting behaviour, with
-    `physics.step()`'s own overlap correction as the hard backstop if this isn't enough."""
-    n = len(positions)
-    force = np.zeros((n, 2))
-    if n < 2:
-        return force
-    tree = cKDTree(positions)
-    pairs = tree.query_pairs(r=AGENT_REPULSION_CUTOFF_M, output_type="ndarray")
-    if len(pairs) == 0:
-        return force
-    i, j = pairs[:, 0], pairs[:, 1]
-    delta = positions[i] - positions[j]
-    dist = np.linalg.norm(delta, axis=1)
-    zero = dist < 1e-9
-    dist_safe = np.where(zero, 1e-6, dist)
-    n_ij = delta / dist_safe[:, None]
-    n_ij[zero] = np.array([1.0, 0.0])
-    r_ij = radii[i] + radii[j]
-    magnitude = AGENT_REPULSION_A * np.exp((r_ij - dist) / AGENT_REPULSION_B)
-    f = n_ij * magnitude[:, None]
-    np.add.at(force, i, f)
-    np.add.at(force, j, -f)
-    return force
-
-
-def _wall_repulsion(m: WalkableMap, positions: np.ndarray) -> np.ndarray:
-    """Same shape of repulsion as `_agent_repulsion`, but away from the nearest wall, using the
-    map's own distance-to-wall field (the same one `world.physics` uses for its hard wall push)."""
-    n = len(positions)
-    force = np.zeros((n, 2))
-    d = m.distance_at(positions)
-    near = d < WALL_REPULSION_CUTOFF_M
-    if not near.any():
-        return force
-    eps = m.resolution
-    p = positions[near]
-    gx = (m.distance_at(p + [eps, 0.0]) - m.distance_at(p - [eps, 0.0])) / (2 * eps)
-    gy = (m.distance_at(p + [0.0, eps]) - m.distance_at(p - [0.0, eps])) / (2 * eps)
-    grad = np.c_[gx, gy]  # points away from the wall, toward increasing clearance
-    norm = np.linalg.norm(grad, axis=1)
-    zero = norm < 1e-9
-    direction = np.zeros_like(grad)
-    direction[~zero] = grad[~zero] / norm[~zero, None]
-    magnitude = WALL_REPULSION_A * np.exp(-d[near] / WALL_REPULSION_B)
-    force[near] = direction * magnitude[:, None]
-    return force
