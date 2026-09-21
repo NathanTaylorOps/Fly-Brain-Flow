@@ -1,4 +1,4 @@
-"""The world: maps now; odour, wind and physics as M0 continues.
+"""The world: maps, odour, wind and the 2D collision-physics solver.
 
     from flybrainflow.world import load_map
     m = load_map("gen:corridor?length=40&width=5", resolution=0.1)
@@ -18,6 +18,8 @@ from .fields import OdorField, OdorSource, Wind
 from .fields import from_scenario as odor_field_for_scenario
 from .geodesic import geodesic_distance_field
 from .map import GENERATORS, WalkableMap
+from .physics import max_overlap
+from .physics import step as physics_step
 
 __all__ = [
     "WalkableMap",
@@ -29,6 +31,8 @@ __all__ = [
     "odor_field_for_scenario",
     "geodesic_distance_field",
     "AirflowField",
+    "physics_step",
+    "max_overlap",
 ]
 
 
