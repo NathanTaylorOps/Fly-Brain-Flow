@@ -1,5 +1,7 @@
 # Fly-Brain Flow
 
+[![tests](https://github.com/NathanTaylorOps/Fly-Brain-Flow/actions/workflows/tests.yml/badge.svg)](https://github.com/NathanTaylorOps/Fly-Brain-Flow/actions/workflows/tests.yml)
+
 *A crowd simulation where every agent is running a real fruit fly brain.*
 
 **Status:** M0 (plumbing) in progress · map loader, scenario config, wall-aware odour, wall-bending wind, the 2D collision solver, the spawn/feed/leave agent lifecycle and the baseline steering model done, 78 tests green · **nothing runs end-to-end yet**
