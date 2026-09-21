@@ -5,9 +5,11 @@ cohort sharing a venue.
 
 import numpy as np
 
+from flybrainflow.agents import Population
+from flybrainflow.brains import Baseline
 from flybrainflow.scenario import Scenario
 from flybrainflow.sim import Sim
-from flybrainflow.world import max_overlap
+from flybrainflow.world import load_map_for_scenario, max_overlap, physics_step
 
 
 def _scenario(**overrides):
@@ -116,6 +118,31 @@ def test_forgetting_a_left_agent_actually_reaches_its_brain():
     assert len(sim.cohorts["brain"].agents) == 0
 
 
+def test_same_seed_reproduces_a_full_multi_cohort_run_exactly():
+    # Real gap, fixed: docs/PLAN.md's own test list names "same seed gives the same run" as a
+    # top-level invariant, but the only existing reproducibility test drove a single ToyBrain
+    # instance directly (tests/test_toy.py) -- nothing checked it at the level that actually
+    # matters in production: a full Sim, both cohorts, spawn timing and personality draws and
+    # multi-agent steering all going through their own independent rng streams together. Two
+    # completely separate Sim instances built from the same seed, run the same number of ticks,
+    # must end up bit-for-bit identical -- not just "similar populations", but literally the same
+    # ids at the same positions with the same status.
+    sc = _scenario(population_cap=8, rate_per_s=3.0, seed=99)
+    sim_a = Sim.from_scenario(sc, rng=np.random.default_rng(99))
+    sim_b = Sim.from_scenario(sc, rng=np.random.default_rng(99))
+    for _ in range(300):
+        sim_a.tick(0.1)
+        sim_b.tick(0.1)
+    for tag in sim_a.cohorts:
+        agents_a = sim_a.cohorts[tag].agents
+        agents_b = sim_b.cohorts[tag].agents
+        assert set(agents_a) == set(agents_b), f"{tag}: different ids survived"
+        for i in agents_a:
+            a, b = agents_a[i], agents_b[i]
+            assert a.status == b.status and a.target_index == b.target_index
+            assert np.allclose(a.position, b.position, atol=1e-12), f"{tag} agent {i}: positions diverged"
+
+
 def test_source_targets_makes_two_streams_actually_cross_the_corridor():
     # Real bug, fixed: corridor_bidirectional.toml's two sources sat right next to a target each
     # (a "two-stream lane test"), so nearest-distance assignment always sent every fly straight
@@ -155,6 +182,45 @@ def test_source_targets_makes_two_streams_actually_cross_the_corridor():
     # Some agents should genuinely be mid-corridor -- impossible if everyone just walked straight
     # back to their own end's target, which is exactly what the pre-fix nearest-distance bug did.
     assert max(mid_counts) > 0, "no agent ever reached the middle of the corridor -- streams aren't crossing"
+
+
+def test_arrivals_minus_departures_equals_current_population():
+    # Real gap, fixed: docs/PLAN.md states this as one of five specific invariants the project
+    # promises to hold ("arrivals minus departures equals current population"), but nothing
+    # actually asserted it directly -- every other test only checked population counts
+    # incidentally (e.g. that _next_id grows past the cap). Drive Population's own lifecycle calls
+    # directly (spawn
+    # returns arrival ids, leave returns departure ids -- both are the real, single source of
+    # truth), and assert arrivals - departures == len(agents) after every tick, for real, over a
+    # run with heavy concurrent spawn/feed/leave churn (a small population_cap and a fast
+    # feeding_time_s so many flies fully cycle through).
+    sc = Scenario.from_dict(
+        {
+            "scenario": {"name": "t", "boundary_mode": "open", "seed": 3},
+            "map": {"source": "gen:corridor?length=10&width=5"},
+            "spawn": {"sources": [[1.0, 2.5]], "rate_per_s": 4.0, "population_cap": 5},
+            "targets": [{"position": [9.0, 2.5], "slots": 2, "feeding_time_s": 0.3}],
+        }
+    )
+    m = load_map_for_scenario(sc)
+    pop = Population.from_scenario(sc, rng=np.random.default_rng(3))
+    brain = Baseline(m, target_positions=[t.position for t in sc.targets])
+    arrivals = 0
+    departures = 0
+    for _ in range(2000):
+        arrivals += len(pop.spawn(0.05))
+        ids = pop.walking_ids()
+        if ids:
+            pos = pop.positions(ids)
+            vel = brain.desired_velocities(ids, pos, radii=sc.agents.radius_m, max_speed_mps=sc.agents.max_speed_mps)
+            new_pos, _ = physics_step(pos, vel, radii=sc.agents.radius_m, dt=0.05, walkable_map=m, max_speed_mps=sc.agents.max_speed_mps)
+            pop.set_positions(ids, new_pos)
+        pop.feed(0.05)
+        departed = pop.leave()
+        brain.forget(departed)
+        departures += len(departed)
+        assert arrivals - departures == len(pop.agents)
+    assert arrivals > 10 and departures > 10  # the run actually churned through real flies
 
 
 def test_a_dense_bottleneck_keeps_agents_from_both_cohorts_reasonably_separated():

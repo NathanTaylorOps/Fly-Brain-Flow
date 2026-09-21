@@ -20,7 +20,13 @@ boundary_mode   = "open"            # "open" | "closed"
 timescale_ratio = 1.0               # brain ms per world ms
 
 [map]
-source          = "gen:corridor?length=40&width=5"   # or "venues/x.svg", "roads.geojson", "osm:N,S,E,W"
+# open_ends=1: this scenario sets [wind].speed_mps > 0 below, and a corridor generated without
+# open_ends is a sealed box for airflow purposes -- real gap, found by the new AirflowField
+# warning added this session (see flybrainflow/world/airflow.py): this scenario's own wind dial
+# was silently doing nothing, because the map had no declared opening for air to actually enter
+# or leave through. open_ends only affects airflow, not pedestrian walkability (see
+# world.map._open_ends_x's own docstring) -- flies still can't walk past either end.
+source          = "gen:corridor?length=40&width=5&open_ends=1"   # or "venues/x.svg", "roads.geojson", "osm:N,S,E,W"
 walkable_grid_m = 0.1
 
 [wind]

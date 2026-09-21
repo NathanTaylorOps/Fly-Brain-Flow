@@ -100,8 +100,16 @@ def gradient_direction(m: WalkableMap, field: np.ndarray, xy) -> np.ndarray:
     eps = m.resolution
     p = np.asarray(xy, float).reshape(-1, 2)
     here = sample_field(m, field, p)
-    gx = sample_field(m, field, p + [eps, 0.0]) - sample_field(m, field, p - [eps, 0.0])
-    gy = sample_field(m, field, p + [0.0, eps]) - sample_field(m, field, p - [0.0, eps])
+    # Real (benign) numeric noise, found and silenced: a point with no walkable path to the
+    # source at all reads `inf` from `sample_field`, so a neighbour pair that's *also* unreachable
+    # computes `inf - inf` = `nan` right here -- correctly caught by the `unusable` mask below
+    # (which checks `isfinite` first), but numpy raises a `RuntimeWarning: invalid value
+    # encountered in subtract` for it regardless, polluting real test/run output every time a
+    # query lands near a disconnected pocket of the map. `errstate` scopes the suppression to
+    # exactly this expected case, not warnings in general.
+    with np.errstate(invalid="ignore"):
+        gx = sample_field(m, field, p + [eps, 0.0]) - sample_field(m, field, p - [eps, 0.0])
+        gy = sample_field(m, field, p + [0.0, eps]) - sample_field(m, field, p - [0.0, eps])
     grad = np.c_[gx, gy] / (2 * eps)
     norm = np.linalg.norm(grad, axis=1)
     unusable = ~np.isfinite(here) | ~np.isfinite(norm) | (norm < 1e-9)

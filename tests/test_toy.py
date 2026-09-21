@@ -134,6 +134,36 @@ def test_a_fly_reaches_its_committed_target_past_a_same_kind_decoy_at_spawn():
     assert reached, f"fly never escaped the decoy's plume, ended at {pos[0]}"
 
 
+def test_hidden_activity_never_exceeds_its_guard_rail_under_an_adversarial_drive():
+    # Real gap, fixed: docs/PLAN.md's own "how I'll know it works" test list states "brain activity
+    # stays bounded" as a named invariant -- `_ACTIVITY_MAX` (toy.py) is the code that's supposed
+    # to guarantee it, but nothing ever actually drove the brain hard enough to prove the clip
+    # holds; every existing test only exercises ordinary food-seeking ranges. This deliberately
+    # tries to break it: an artificially very strong, very close plume (5x the strength/None of the
+    # normal range) feeding a fly stuck oscillating right next to it tick after tick, at max
+    # personality sensitivity -- the kind of adversarial-but-not-impossible input the plan's own
+    # M1 risk section warns a real connectome could produce ("a few wrong signs... a small test
+    # won't show it"). If `_ACTIVITY_MAX`'s clip were ever silently weakened or removed, this is
+    # the test that would actually catch it.
+    m = corridor(length=10, width=5)
+    target = Target([2.2, 2.5])  # very close to the fly's own position below
+    odor = OdorField(
+        Wind(0.0, 0.0), [OdorSource(kind=target.kind, position=target.position, strength=50.0, range_m=60.0)], walkable_map=m
+    )
+    table = placeholder_personality_table()
+    table["sugar_sensitivity"][:] = 10.0  # cranked well past the normal 0.6-1.4 range
+    table["noise"][:] = 10.0  # cranked well past the normal 0-1 range too
+    brain = ToyBrain(m, [target], scenario_seed=0, personality_table=table)
+    pos = np.array([[2.0, 2.5]])
+    for _ in range(500):
+        brain.desired_velocities([0], pos, radii=0.25, max_speed_mps=1.3, personalities=[0], odor_field=odor, dt=0.05)
+        activity = brain._activity[0]
+        assert np.all(np.abs(activity) <= 5.0 + 1e-9), f"activity exceeded its guard rail: {activity}"
+        # jitter the position slightly each tick rather than letting the fly walk away and defuse
+        # its own adversarial input -- keeps the drive strong for the whole run
+        pos = np.array([[2.0 + 0.01 * np.sin(_), 2.5]])
+
+
 def test_forget_releases_all_three_per_agent_dicts():
     m = corridor(length=10, width=5)
     target = Target([8.0, 2.5])

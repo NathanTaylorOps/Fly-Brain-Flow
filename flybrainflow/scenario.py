@@ -168,6 +168,31 @@ def _need(d: dict[str, Any], key: str, where: str) -> Any:
     return d[key]
 
 
+def _float(value: Any, where: str, key: str) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        raise ScenarioError(f"[{where}] '{key}' must be a number, got {value!r}") from None
+
+
+def _int(value: Any, where: str, key: str, min_value: int | None = None) -> int:
+    """Like `_positive` but for whole numbers -- also rejects a non-integer float instead of
+    silently truncating it. Real bug, fixed: `target = 1.9` used to sail through as `int(1.9)` ==
+    `1` with no error at all, so a typo'd/miscounted target index would silently pick a different
+    (but still valid) target and produce a wrong-but-plausible run rather than a rejected file --
+    exactly the kind of mistake this file's own "validation is deliberately strict" promise exists
+    to catch. A non-numeric value (`target = "one"`) used to reach a bare `int(...)` call and raise
+    an unguarded `ValueError` with no `[where] 'key'` context, instead of this module's usual
+    `ScenarioError`."""
+    f = _float(value, where, key)
+    if f != int(f):
+        raise ScenarioError(f"[{where}] '{key}' must be a whole number, got {value!r}")
+    v = int(f)
+    if min_value is not None and v < min_value:
+        raise ScenarioError(f"[{where}] '{key}' must be >= {min_value}, got {v}")
+    return v
+
+
 def _positive(value: Any, where: str, key: str, strict: bool = True) -> float:
     try:
         v = float(value)
@@ -194,7 +219,7 @@ def _one_of(value: Any, allowed: tuple[str, ...], where: str, key: str) -> str:
 
 def _parse_meta(d: dict[str, Any]) -> ScenarioMeta:
     name = str(_need(d, "name", "scenario"))
-    seed = int(d.get("seed", 0))
+    seed = _int(d.get("seed", 0), "scenario", "seed")
     return ScenarioMeta(
         name=name,
         seed=seed,
@@ -219,7 +244,7 @@ def _parse_map(d: dict[str, Any]) -> MapConfig:
 
 def _parse_wind(d: dict[str, Any]) -> WindConfig:
     return WindConfig(
-        direction_deg=float(d.get("direction_deg", 0.0)),
+        direction_deg=_float(d.get("direction_deg", 0.0), "wind", "direction_deg"),
         speed_mps=_positive(d.get("speed_mps", 0.0), "wind", "speed_mps", strict=False),
     )
 
@@ -231,9 +256,7 @@ def _parse_spawn(d: dict[str, Any], boundary_mode: str, n_targets: int = 0) -> S
     parsed = [_parse_spawn_source(s, n_targets) for s in raw_sources]
     sources = tuple(p for p, _ in parsed)
     source_targets = tuple(t for _, t in parsed)
-    cap = int(d.get("population_cap", 100))
-    if cap <= 0:
-        raise ScenarioError(f"[spawn] 'population_cap' must be > 0, got {cap}")
+    cap = _int(d.get("population_cap", 100), "spawn", "population_cap", min_value=1)
     return SpawnConfig(
         sources=sources,
         rate_per_s=_positive(d.get("rate_per_s", 1.0), "spawn", "rate_per_s", strict=False),
@@ -251,7 +274,7 @@ def _parse_spawn_source(s: Any, n_targets: int) -> tuple[tuple[float, float], in
         target = s.get("target")
         if target is None:
             return position, None
-        target = int(target)
+        target = _int(target, "spawn", "sources.target")
         if not (0 <= target < n_targets):
             raise ScenarioError(f"[spawn] 'sources' target index {target} is out of range for {n_targets} target(s)")
         return position, target
@@ -264,9 +287,7 @@ def _parse_targets(items: list[dict[str, Any]], boundary_mode: str) -> tuple[Tar
     out = []
     for i, t in enumerate(items):
         where = f"targets[{i}]"
-        slots = int(t.get("slots", 6))
-        if slots <= 0:
-            raise ScenarioError(f"[{where}] 'slots' must be > 0, got {slots}")
+        slots = _int(t.get("slots", 6), where, "slots", min_value=1)
         out.append(
             TargetConfig(
                 kind=_one_of(t.get("kind", "sugar"), TARGET_KINDS, where, "kind"),
@@ -281,7 +302,7 @@ def _parse_targets(items: list[dict[str, Any]], boundary_mode: str) -> tuple[Tar
 
 
 def _parse_agents(d: dict[str, Any]) -> AgentsConfig:
-    fov = float(d.get("field_of_view_deg", 270.0))
+    fov = _float(d.get("field_of_view_deg", 270.0), "agents", "field_of_view_deg")
     if not 0 < fov <= 360:
         raise ScenarioError(f"[agents] 'field_of_view_deg' must be in (0, 360], got {fov}")
     return AgentsConfig(

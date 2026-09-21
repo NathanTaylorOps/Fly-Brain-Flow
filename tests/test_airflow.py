@@ -1,5 +1,7 @@
 """Potential-flow airflow field tests."""
 
+import warnings
+
 import numpy as np
 
 from flybrainflow.world.airflow import AirflowField
@@ -20,9 +22,24 @@ def test_sealed_box_has_no_airflow():
     # deep -- otherwise the wall and the map's outer edge are the same cell, which is a genuinely
     # separate (and separately tested) ambiguity, not what this test is checking.
     m = corridor(length=10, width=4, resolution=0.1, open_ends=False)
-    field = AirflowField.build(m)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        field = AirflowField.build(m)
     v = field.velocity_at([[5, 2]], direction_deg=0, speed_mps=3.0)[0]
     assert np.allclose(v, 0.0, atol=1e-6)
+    # Real gap, fixed: PLAN.md's own risk table promises a sealed venue "needs to visibly say so
+    # rather than silently return zero" -- this used to silently return zero with no signal at all.
+    assert field.has_opening is False
+    assert any("no air path" in str(w.message) for w in caught)
+
+
+def test_a_venue_with_a_real_opening_warns_about_nothing():
+    m = corridor(length=10, width=4, resolution=0.5, open_ends=True)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        field = AirflowField.build(m)
+    assert field.has_opening is True
+    assert not any("AirflowField" in str(w.message) for w in caught)
 
 
 def test_thin_padding_without_declared_openings_is_a_known_edge_case():

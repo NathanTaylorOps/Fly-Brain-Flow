@@ -38,6 +38,7 @@ right physical answer for a sealed room, not a bug.
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 
 import numpy as np
@@ -59,6 +60,7 @@ class AirflowField:
     solid: np.ndarray  # (ny, nx) bool -- real, air-blocking obstacle cells
     grad_x: np.ndarray  # (ny, nx, 2) -- velocity per cell for unit wind toward +x
     grad_y: np.ndarray  # (ny, nx, 2) -- velocity per cell for unit wind toward +y
+    has_opening: bool = True  # False -- a fully sealed venue; see the warning `build()` raises
 
     @classmethod
     def build(cls, m: WalkableMap) -> "AirflowField":
@@ -67,7 +69,29 @@ class AirflowField:
         phi_y = _solve_potential(m, solid, open_, unit=(0.0, 1.0))
         grad_x = _velocity_grid(phi_x, m.resolution, solid)
         grad_y = _velocity_grid(phi_y, m.resolution, solid)
-        return cls(m, solid, grad_x, grad_y)
+        # Real gap, fixed: docs/PLAN.md's own risk table names this exact mitigation -- "a venue
+        # with no declared openings needs to visibly say so rather than silently return zero" --
+        # but nothing ever actually said anything; the math was already correct (a sealed room
+        # really does have zero wind throughout), only the *silence* was the gap. `open_.any()`
+        # alone isn't the right check here: the raster-edge fallback in `_classify` marks the
+        # literal outer border as "open" whenever no explicit `air_open` was declared, whatever the
+        # padding depth (that's the separate, already-documented "thin padding" ambiguity) -- so
+        # `open_` is almost never actually empty even for a genuinely airtight venue, and checking
+        # it would make this warning fire for essentially nothing. What actually answers "does air
+        # reach anywhere in here" is whether the solved velocity field is nonzero *anywhere inside
+        # the walkable area*, for either reference direction -- that's the same thing the existing
+        # sealed-box test already verifies empirically at one point; this checks it everywhere.
+        has_opening = bool(np.any(np.abs(grad_x[m.mask]) > 1e-9) or np.any(np.abs(grad_y[m.mask]) > 1e-9))
+        if not has_opening:
+            warnings.warn(
+                f"AirflowField: {m.name!r} has no air path reaching its walkable interior -- this "
+                "venue is airtight, so wind will be zero everywhere, which is physically correct "
+                "for a sealed room but is presumably not what was intended for a real venue with "
+                "doors or gates. If it should have openings, check whether its map generator needs "
+                "open_ends=True (see world.map) or an explicit air_open mask.",
+                stacklevel=2,
+            )
+        return cls(m, solid, grad_x, grad_y, has_opening=has_opening)
 
     def velocity_at(self, xy, direction_deg: float, speed_mps: float) -> np.ndarray:
         """(n, 2) local wind vector at each point, for this wind-dial setting."""

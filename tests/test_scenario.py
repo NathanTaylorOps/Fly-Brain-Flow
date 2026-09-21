@@ -104,6 +104,33 @@ def test_dict_form_spawn_source_pins_a_preferred_target():
     assert sc.spawn.source_targets == (1, None)
 
 
+def test_non_numeric_target_index_raises_scenario_error_not_a_raw_traceback():
+    # Real bug, fixed: a non-numeric `target` used to reach a bare `int(...)` call and raise an
+    # unguarded ValueError with no [where] 'key' context -- unlike every other field in this file,
+    # which is validated strictly with a clear ScenarioError. A non-programmer scenario author
+    # would see a raw traceback instead of a message telling them which key is wrong.
+    bad = DICT_SOURCE.replace("target = 1", 'target = "one"')
+    try:
+        Scenario.from_toml(_write(bad))
+    except ScenarioError as e:
+        assert "target" in str(e)
+        return
+    raise AssertionError("expected a ScenarioError, not a raw exception, for a non-numeric target")
+
+
+def test_fractional_target_index_is_rejected_not_silently_truncated():
+    # Real bug, fixed: `target = 1.9` used to silently truncate to `int(1.9) == 1` with no error --
+    # a typo'd target index would silently pick a different (but still valid) target and produce a
+    # wrong-but-plausible run instead of a rejected file.
+    bad = DICT_SOURCE.replace("target = 1", "target = 1.9")
+    try:
+        Scenario.from_toml(_write(bad))
+    except ScenarioError as e:
+        assert "target" in str(e) and "whole number" in str(e)
+        return
+    raise AssertionError("expected a ScenarioError for a fractional target index, not silent truncation")
+
+
 def test_out_of_range_target_index_is_a_named_scenario_error():
     bad = DICT_SOURCE.replace("target = 1", "target = 5")  # only targets 0 and 1 exist
     try:
@@ -112,6 +139,26 @@ def test_out_of_range_target_index_is_a_named_scenario_error():
         assert "target" in str(e)
         return
     raise AssertionError("expected a ScenarioError for an out-of-range spawn source target index")
+
+
+def test_non_numeric_values_are_rejected_cleanly_not_as_a_raw_traceback():
+    # These fields (seed, population_cap, slots, field_of_view_deg) used to call bare int()/float()
+    # with no try/except, so a non-numeric value raised an unguarded ValueError instead of this
+    # file's usual ScenarioError -- the same class of gap as the target-index bug above, just
+    # pre-existing rather than introduced this session. One representative case per field.
+    cases = {
+        MINIMAL.replace('name = "t"', 'name = "t"\nseed = "one"'): "seed",
+        MINIMAL.replace("sources = [[1, 1]]", 'sources = [[1, 1]]\npopulation_cap = "one"'): "population_cap",
+        MINIMAL.replace("position = [5, 1]", 'position = [5, 1]\nslots = "one"'): "slots",
+        MINIMAL + "\n[agents]\nfield_of_view_deg = \"one\"\n": "field_of_view_deg",
+    }
+    for toml, key in cases.items():
+        try:
+            Scenario.from_toml(_write(toml))
+        except ScenarioError as e:
+            assert key in str(e), (key, str(e))
+            continue
+        raise AssertionError(f"expected a ScenarioError mentioning {key}, not a raw exception")
 
 
 def test_closed_mode_needs_no_sources_or_targets():

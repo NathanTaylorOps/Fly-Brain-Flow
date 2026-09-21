@@ -3,6 +3,7 @@
 see the plumbing built so far do something, rather than reading about it.
 
     python scripts/record_demo.py
+    python scripts/record_demo.py scenarios/corridor_bidirectional.toml --duration 60
     python scripts/record_demo.py --scenario scenarios/corridor_bidirectional.toml --duration 60
     python -m http.server -d viewer 8000    # fetch() needs http(s), not file://
     # open http://localhost:8000/?data=run.json  (or use the file picker on the page directly)
@@ -29,14 +30,31 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--scenario", default=str(REPO_ROOT / "scenarios" / "corridor_bidirectional.toml"))
-    parser.add_argument("--duration", type=float, default=60.0, help="simulated seconds to run (default: 60)")
-    parser.add_argument("--dt", type=float, default=0.1, help="seconds per tick (default: 0.1)")
+    # Real usability gap, fixed: this used to be `--scenario`-only, so a plain `python
+    # scripts/record_demo.py scenarios/x.toml` -- the first, most natural thing to try -- failed
+    # with an argparse "unrecognized arguments" error instead of just working. `scenario_positional`
+    # (`nargs="?"`) accepts that same natural form without breaking the existing `--scenario` form
+    # anyone's scripts or muscle memory already rely on; `_resolve_scenario` below picks whichever
+    # one was actually given, preferring the explicit `--scenario` flag if someone passes both.
+    parser.add_argument("scenario_positional", nargs="?", default=None, metavar="SCENARIO", help="path to a scenario TOML file (same as --scenario)")
+    parser.add_argument("--scenario", default=None, help=f"default: {REPO_ROOT / 'scenarios' / 'corridor_bidirectional.toml'}")
+    parser.add_argument("--duration", type=float, default=60.0, help="simulated seconds to run (default: 60, must be > 0)")
+    parser.add_argument("--dt", type=float, default=0.1, help="seconds per tick (default: 0.1, must be > 0)")
     parser.add_argument("--out", default=str(REPO_ROOT / "viewer" / "run.json"))
     parser.add_argument("--seed", type=int, default=None, help="override the scenario's own seed")
     args = parser.parse_args()
 
-    sc = Scenario.from_toml(args.scenario)
+    # Real bug, fixed: `--dt 0` (or a negative --duration/--dt) used to reach `args.duration /
+    # args.dt` below and crash with a raw ZeroDivisionError (or silently run zero/negative ticks) --
+    # no help at all for a non-programmer working from a terminal. A clear, named error is what
+    # every other user-facing input in this project (scenario.py's own validation) already does.
+    if args.duration <= 0:
+        parser.error(f"--duration must be > 0, got {args.duration}")
+    if args.dt <= 0:
+        parser.error(f"--dt must be > 0, got {args.dt}")
+
+    scenario_path = args.scenario or args.scenario_positional or str(REPO_ROOT / "scenarios" / "corridor_bidirectional.toml")
+    sc = Scenario.from_toml(scenario_path)
     if args.seed is not None:
         sc = dataclasses.replace(sc, meta=dataclasses.replace(sc.meta, seed=args.seed))
 

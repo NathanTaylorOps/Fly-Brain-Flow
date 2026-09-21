@@ -82,6 +82,24 @@ def test_many_agents_in_a_bottleneck_end_up_non_overlapping():
     assert max_overlap(new_pos, 0.25) < 0.01
 
 
+def test_agent_and_wall_overlap_dont_permanently_fight_each_other():
+    # Real bug, fixed: agent-agent push and wall push used to run as two separate passes, each to
+    # its own full convergence -- so a wall push that shoved an agent back into another agent had
+    # no way to get corrected, and more `push_iterations` genuinely never helped. Reproduced
+    # exactly like this: two agents stacked 5 cm apart, both close enough to a wall that separating
+    # them pushes one back into it. Before the fix this stayed at ~0.45 m overlap regardless of
+    # push_iterations (3, 10, 20, 50 all identical); the interleaved agent/wall relax in `_relax`
+    # must actually resolve it given enough rounds, the exact case M2's wall-adjacent bottleneck
+    # congestion will hit constantly, not as a rare edge case.
+    m = corridor(length=20, width=5)
+    pos = [[5.0, 0.15], [5.0, 0.20]]  # both close to the y=0 wall, 5 cm apart
+    vel = [[0.0, 0.0], [0.0, 0.0]]
+    r = 0.3
+    new_pos, _ = step(pos, vel, radii=r, dt=1.0, walkable_map=m, push_iterations=20)
+    assert m.is_walkable(new_pos).all()
+    assert max_overlap(new_pos, r) < 1e-6  # this used to be stuck at ~0.45 no matter the iterations
+
+
 def test_actual_velocity_reflects_correction_not_just_intent():
     # An agent whose desired move is blocked by a wall should show a different actual velocity
     # than what it asked for -- that's the whole point of returning it separately.
