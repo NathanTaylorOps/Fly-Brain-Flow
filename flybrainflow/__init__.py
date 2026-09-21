@@ -6,7 +6,9 @@ Package layout (grows with the milestones — see docs/PLAN.md):
     flybrainflow.world      maps, odour and wind fields, physics          (M0)
     flybrainflow.agents     spawn / feed / leave, personalities           (M0)
     flybrainflow.brains     toy connectome, baseline, real brain          (M0 / M1)
-    flybrainflow.sim        the loop and the recorder                     (M0)
+    flybrainflow.sim        the loop, tying every cohort's brain          (M0)
+                            and physics together each tick
+    flybrainflow.recorder   captures each tick to disk for later replay   (M0)
 """
 
 __version__ = "0.0.1"

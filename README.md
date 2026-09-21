@@ -4,7 +4,7 @@
 
 *A crowd simulation where every agent is running a real fruit fly brain.*
 
-**Status:** M0 (plumbing) in progress · map loader, scenario config, wall-aware odour, wall-bending wind, the 2D collision solver, the spawn/feed/leave agent lifecycle (fly-brained/baseline cohorts sharing one venue), the baseline steering model, the toy brain and the sim loop tying it all together done, 100 tests green · **the recorder and viewer are what's left before it runs end-to-end**
+**Status:** M0 (plumbing) in progress · map loader, scenario config, wall-aware odour, wall-bending wind, the 2D collision solver, the spawn/feed/leave agent lifecycle (fly-brained/baseline cohorts sharing one venue), the baseline steering model, the toy brain, the sim loop and the recorder done, 106 tests green · **a 2D playback viewer is the one M0 item left**
 
 ## What
 
@@ -34,8 +34,8 @@ It's long and deliberate, on purpose: **[docs/PLAN.md](docs/PLAN.md)**. Scope, d
 
 ## Running it
 
-There's no recorder or viewer yet, so nothing produces an output you can watch -- but the sim loop
-itself runs, ticking a real scenario forward:
+There's no viewer yet, so nothing produces a picture you can watch -- but the sim loop runs and a
+run can be recorded to disk:
 
 ```
 pip install -e '.[dev]'
@@ -44,6 +44,7 @@ pytest
 python -c "
 from flybrainflow.scenario import Scenario
 from flybrainflow.sim import Sim
+from flybrainflow.recorder import Recorder
 
 sc = Scenario.from_dict({
     'scenario': {'name': 'demo', 'boundary_mode': 'open'},
@@ -52,13 +53,16 @@ sc = Scenario.from_dict({
     'targets': [{'kind': 'sugar', 'position': [13.0, 2.5], 'slots': 4, 'feeding_time_s': 1.0}],
 })
 sim = Sim.from_scenario(sc)
+rec = Recorder(sim)
 for _ in range(300):
     sim.tick(0.1)
+    rec.capture()
+rec.save('demo_run.npz')
 print({tag: len(pop.agents) for tag, pop in sim.cohorts.items()})
 "
 ```
 
-Maps can be built from a generator, an SVG or DXF floor plan, or a GeoJSON road file — see `flybrainflow/world/` and `scenarios/`. Odour plumes (movable, per-target, wall-aware) live in `flybrainflow/world/fields.py`; wall-routing for odour is `geodesic.py`; wind that actually bends around obstacles and speeds up through gaps (potential flow, not real turbulence) is `airflow.py`; the 2D circle-collision solver that actually moves agents — the same one for fly-brained and baseline agents alike — is `physics.py`. The agent lifecycle (spawning at entry points up to a population cap, feeding at a target until its slot frees up, leaving) lives in `flybrainflow/agents.py`, for open-boundary scenarios only — the closed/ring-road population setup is a separate M2 task. `agents.build_cohorts()` sets up a fly-brained and a baseline `Population` sharing one venue — same target slots, same id sequence — for the "standard crowd model running in the same space" comparison the plan calls for. The standard-crowd-model reference this project measures the real fly brain against — goal-seeking along the wall-aware geodesic field, with social-force-style pedestrian and wall repulsion — is `flybrainflow/brains/baseline.py`. The toy brain — a small fake-neuron stand-in for the real 166k-neuron connectome, built so the surrounding plumbing gets debugged before the real dataset lands — is `flybrainflow/brains/toy.py`; both brains move through the same `physics.step()`, so the eventual comparison is of steering decisions, not of two different simulators. `flybrainflow/sim.py`'s `Sim` ties all of that into one runnable tick — spawn, steer (per cohort, through its own brain), move (one shared physics call across every cohort), feed, leave.
+Maps can be built from a generator, an SVG or DXF floor plan, or a GeoJSON road file — see `flybrainflow/world/` and `scenarios/`. Odour plumes (movable, per-target, wall-aware) live in `flybrainflow/world/fields.py`; wall-routing for odour is `geodesic.py`; wind that actually bends around obstacles and speeds up through gaps (potential flow, not real turbulence) is `airflow.py`; the 2D circle-collision solver that actually moves agents — the same one for fly-brained and baseline agents alike — is `physics.py`. The agent lifecycle (spawning at entry points up to a population cap, feeding at a target until its slot frees up, leaving) lives in `flybrainflow/agents.py`, for open-boundary scenarios only — the closed/ring-road population setup is a separate M2 task. `agents.build_cohorts()` sets up a fly-brained and a baseline `Population` sharing one venue — same target slots, same id sequence — for the "standard crowd model running in the same space" comparison the plan calls for. The standard-crowd-model reference this project measures the real fly brain against — goal-seeking along the wall-aware geodesic field, with social-force-style pedestrian and wall repulsion — is `flybrainflow/brains/baseline.py`. The toy brain — a small fake-neuron stand-in for the real 166k-neuron connectome, built so the surrounding plumbing gets debugged before the real dataset lands — is `flybrainflow/brains/toy.py`; both brains move through the same `physics.step()`, so the eventual comparison is of steering decisions, not of two different simulators. `flybrainflow/sim.py`'s `Sim` ties all of that into one runnable tick — spawn, steer (per cohort, through its own brain), move (one shared physics call across every cohort), feed, leave. `flybrainflow/recorder.py`'s `Recorder` captures each tick to an `.npz` file — every agent's position, and, for fly-brained agents specifically, the exact 6-channel sensory input its brain saw that tick, per the plan's "replay debugger for agents" design.
 
 ## Licence and credit
 

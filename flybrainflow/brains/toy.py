@@ -136,10 +136,17 @@ class ToyBrain:
         self._activity: dict[int, np.ndarray] = {}
         self._heading: dict[int, float] = {}
         self._rng: dict[int, np.random.Generator] = {}
+        # The plan's whole "replay debugger for agents" design rests on being able to recompute
+        # any one fly's brain later from just its recorded sensory inputs, without re-running the
+        # rest of the crowd. `last_sense` is what a recorder (see `flybrainflow/recorder.py`)
+        # actually captures each tick -- the exact 6-channel input this fly's brain saw, keyed by
+        # id. It's overwritten every tick, not accumulated; a recorder must read it right after
+        # calling `desired_velocities`, before the next tick overwrites it.
+        self.last_sense: dict[int, np.ndarray] = {}
 
     def forget(self, ids) -> None:
         """Release every piece of per-agent state for ids that are gone for good -- same idea,
-        same reason, as `Baseline.forget`: without this, all three dicts below (plus the target
+        same reason, as `Baseline.forget`: without this, all four dicts below (plus the target
         assignment cache) grow for as long as the process runs, not just for as long as an agent
         is actually alive. Forgetting an id that's still walking is harmless; it's just
         re-initialised the next time it's seen, as if newly spawned."""
@@ -147,6 +154,7 @@ class ToyBrain:
             self._activity.pop(i, None)
             self._heading.pop(i, None)
             self._rng.pop(i, None)
+            self.last_sense.pop(i, None)
         self._targets.forget(ids)
 
     def desired_velocities(self, ids, positions, radii, max_speed_mps, personalities, odor_field, dt: float) -> np.ndarray:
@@ -170,6 +178,8 @@ class ToyBrain:
         heading_vec = np.c_[np.cos(heading), np.sin(heading)]
 
         sense, food_direction, food_drive = self._sense(ids, positions, radii, target_idx, heading_vec, odor_field)
+        for k, i in enumerate(ids):
+            self.last_sense[i] = sense[k]
         activity = np.stack([self._activity[i] for i in ids])
         drive = sense @ self._Win.T
         recur = activity @ self._W.T
