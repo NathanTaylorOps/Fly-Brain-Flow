@@ -142,12 +142,23 @@ class OdorField:
 
     def _plume(self, p: np.ndarray, s: OdorSource) -> np.ndarray:
         src = np.asarray(s.position, float)
-        d = p - src  # straight-line delta; still used as the alignment reference direction
+        d = p - src  # straight-line delta
         straight_r = np.linalg.norm(d, axis=1)
-        r = self._geodesic_r(p, s) if self.walkable_map is not None else straight_r
+        occluded = self.walkable_map is not None
+        r = self._geodesic_r(p, s) if occluded else straight_r
         if self.wind.speed_mps > 0:
-            with np.errstate(invalid="ignore", divide="ignore"):
-                unit_d = np.divide(d, straight_r[:, None], out=np.zeros_like(d), where=straight_r[:, None] > 0)
+            if occluded:
+                # The "is this point downwind of the source" question needs the direction along
+                # the actual walking path back to the source, not a straight line that may cut
+                # through the very wall the scent has to detour around. This is the direction a
+                # local wind vector should be compared against near a bend -- using the
+                # straight-line bearing here was the gap in the "local wind" fix from the airflow
+                # rebuild: that made the wind vector itself bend correctly, but still judged
+                # alignment against a bearing that doesn't.
+                unit_d = self._geodesic_direction(p, s)
+            else:
+                with np.errstate(invalid="ignore", divide="ignore"):
+                    unit_d = np.divide(d, straight_r[:, None], out=np.zeros_like(d), where=straight_r[:, None] > 0)
             if self.airflow is not None:
                 local_wind = self.airflow.velocity_at(p, self.wind.direction_deg, self.wind.speed_mps)
                 local_speed = np.linalg.norm(local_wind, axis=1)
@@ -167,12 +178,34 @@ class OdorField:
             return s.strength * np.exp(-r / eff_range)
 
     def _geodesic_r(self, p: np.ndarray, s: OdorSource) -> np.ndarray:
+        return _sample_geo_field(self.walkable_map, self._geo_field(s), p)
+
+    def _geodesic_direction(self, p: np.ndarray, s: OdorSource) -> np.ndarray:
+        """Unit vector at each point, pointing along the shortest walkable path away from `s` --
+        the wall-aware equivalent of the straight-line `(p - src) / |p - src|` used in open mode.
+        Same finite-difference-on-the-distance-field trick as `brains.baseline`'s goal steering."""
+        fld = self._geo_field(s)
+        eps = self.walkable_map.resolution
+        gx = _sample_geo_field(self.walkable_map, fld, p + [eps, 0.0]) - _sample_geo_field(
+            self.walkable_map, fld, p - [eps, 0.0]
+        )
+        gy = _sample_geo_field(self.walkable_map, fld, p + [0.0, eps]) - _sample_geo_field(
+            self.walkable_map, fld, p - [0.0, eps]
+        )
+        grad = np.c_[gx, gy] / (2 * eps)  # points toward increasing distance, i.e. away from the source
+        norm = np.linalg.norm(grad, axis=1)
+        zero = norm < 1e-9  # at the source itself, or no walkable path to it at all
+        unit = np.zeros_like(grad)
+        unit[~zero] = grad[~zero] / norm[~zero, None]
+        return unit
+
+    def _geo_field(self, s: OdorSource) -> np.ndarray:
         cached = self._geo_cache.get(id(s))
         if cached is None or cached[0] != s.position:
             fld = geodesic_distance_field(self.walkable_map, s.position, connectivity=self.connectivity)
             cached = (s.position, fld)
             self._geo_cache[id(s)] = cached
-        return _sample_geo_field(self.walkable_map, cached[1], p)
+        return cached[1]
 
 
 # ---------------------------------------------------------------------------

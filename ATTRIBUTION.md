@@ -16,7 +16,7 @@ Everything this project is built on, with licences. If I've used it, it's here.
 | Drosophila_brain_model | Shiu P. K. et al. (2024), *A Drosophila computational brain model reveals sensorimotor processing*, Nature 634:210–219. https://github.com/philshiu/Drosophila_brain_model | see repo | The spiking (LIF) formulation and the direct-injection approach to sensory input |
 | flyvis | Lappalainen J. K. et al. (2024), *Connectome-constrained networks predict neural activity across the fly visual system*, Nature. https://github.com/TuragaLab/flyvis | see repo | Reference for the rate-based formulation |
 | fly-brain (embodied *Drosophila*) | https://github.com/erojasoficial-byte/fly-brain | MIT | Reference for the brain-to-body bridge and GPU batching. **Code only** — it is built on FlyWire, so any data derived through it is CC-BY-NC and is not used here. |
-| PySocialForce | https://github.com/yuxiang-gao/PySocialForce | MIT | Forked as the social-force baseline model |
+| PySocialForce | https://github.com/yuxiang-gao/PySocialForce | MIT | Algorithmic reference for the baseline model's steering (goal-seeking plus exponential pedestrian/wall repulsion); reimplemented against this project's own map and physics rather than imported, so every agent type moves through the same shared solver — see `flybrainflow/brains/baseline.py` |
 | Connectome Interpreter | YijieYin/connectome-interpreter | see repo | Pathway tracing for the "why did it turn here?" inspector layer |
 | neuprint-python, navis, fafbseg, osmnx | respective authors | see repos | Data access and map loading |
 

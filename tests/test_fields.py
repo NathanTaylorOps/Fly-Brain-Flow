@@ -4,7 +4,7 @@ import numpy as np
 
 from flybrainflow.scenario import Scenario
 from flybrainflow.world import AirflowField, OdorField, OdorSource, Wind, load_map_for_scenario, odor_field_for_scenario
-from flybrainflow.world.map import bottleneck
+from flybrainflow.world.map import bottleneck, room_with_exit
 
 
 def test_concentration_decays_with_distance():
@@ -172,6 +172,30 @@ def test_odor_uses_the_bent_local_wind_when_an_airflow_field_is_given():
     c_global = global_field.sample(query, "sugar")[0]
     c_bent = bent_field.sample(query, "sugar")[0]
     assert abs(c_global - c_bent) > 1e-9  # the two wind models genuinely disagree here
+
+
+def test_wind_alignment_uses_the_bent_path_not_a_straight_line():
+    # Real gap found on review: the "is this point downwind or upwind" question used a
+    # straight-line bearing from source to point even in occluded mode, which can point straight
+    # through the very wall the scent has to detour around. A point deep in the exit stub, with
+    # the source in the room's far corner well below the door, makes the two disagree clearly: a
+    # straight line from the corner to the stub cuts through the wall beside the door, but the
+    # real walking path bends through the doorway first, then straight down the stub.
+    stub_length = 6.0
+    m = room_with_exit(width=20, height=15, door_width=1.5, stub_length=stub_length)
+    y0, y1 = m.meta["door_y"]
+    door_y_mid = (y0 + y1) / 2
+    src_pos = (2.0, 1.0)  # far corner, well below the door
+    query = np.array([[m.meta["width"] + stub_length - 1.0, door_y_mid]])  # deep in the stub
+
+    field = OdorField(Wind(), [OdorSource(kind="sugar", position=src_pos, range_m=30)], walkable_map=m)
+    geo_dir = field._geodesic_direction(query, field.sources[0])[0]
+
+    straight = query[0] - np.array(src_pos)
+    straight_unit = straight / np.linalg.norm(straight)
+
+    assert geo_dir[0] > 0.9  # deep in the straight stub, walking away from the source means +x
+    assert abs(geo_dir[1] - straight_unit[1]) > 0.1  # meaningfully different from the naive bearing
 
 
 def test_from_scenario_builds_matching_sources():
