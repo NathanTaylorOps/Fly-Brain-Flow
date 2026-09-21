@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Fly-Brain Flow — recording playback</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #14171c;
+    --panel: #1c2028;
+    --floor: #2a2f3a;
+    --wall: #0c0e12;
+    --text: #e6e9ef;
+    --muted: #8b93a3;
+    --brain: #ff9f43;
+    --baseline: #4fb0ff;
+    --sugar: #ffd23f;
+    --mate: #ff6ba9;
+    --accent: #4fb0ff;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  #app { display: flex; flex-direction: column; height: 100%; }
+  header {
+    padding: 10px 16px; background: var(--panel); border-bottom: 1px solid #000;
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; white-space: nowrap; }
+  header .sub { color: var(--muted); font-size: 12px; }
+  main { flex: 1; position: relative; min-height: 0; }
+  canvas { display: block; width: 100%; height: 100%; background: var(--bg); }
+  #drop {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    flex-direction: column; gap: 10px; color: var(--muted); text-align: center; padding: 24px;
+  }
+  #drop.hidden { display: none; }
+  #drop input { font: inherit; }
+  #drop code { background: #000; padding: 2px 6px; border-radius: 4px; color: var(--text); }
+  footer {
+    padding: 10px 16px; background: var(--panel); border-top: 1px solid #000;
+    display: flex; align-items: center; gap: 12px;
+  }
+  footer.hidden { display: none; }
+  button {
+    background: var(--accent); color: #08111a; border: none; border-radius: 6px;
+    padding: 6px 14px; font-weight: 600; cursor: pointer; font-size: 13px;
+  }
+  button:hover { filter: brightness(1.1); }
+  input[type="range"] { flex: 1; }
+  input[type="file"] { color: var(--text); }
+  #time { font-variant-numeric: tabular-nums; color: var(--muted); min-width: 11ch; }
+  #speed { width: 70px; }
+  .legend { display: flex; gap: 14px; margin-left: auto; font-size: 12px; color: var(--muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 5px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>Fly-Brain Flow</h1>
+    <span class="sub">recording playback — a flat top-down replay of one recorded run, not the eventual 3D neuron viewer</span>
+    <div class="legend">
+      <span><i class="dot" style="background:var(--brain)"></i>fly-brained</span>
+      <span><i class="dot" style="background:var(--baseline)"></i>baseline</span>
+      <span><i class="dot" style="background:var(--sugar)"></i>sugar</span>
+      <span><i class="dot" style="background:var(--mate)"></i>mate</span>
+    </div>
+  </header>
+  <main>
+    <canvas id="canvas"></canvas>
+    <div id="drop">
+      <div>Load a recording exported with <code>flybrainflow.viewer_export.export_for_viewer(...)</code></div>
+      <input id="file" type="file" accept="application/json">
+      <div class="sub">or open this page with <code>?data=run.json</code></div>
+    </div>
+  </main>
+  <footer class="hidden" id="controls">
+    <button id="playpause">Play</button>
+    <input id="scrub" type="range" min="0" max="0" value="0" step="1">
+    <span id="time">0.0s / 0.0s</span>
+    <select id="speed">
+      <option value="0.25">0.25x</option>
+      <option value="1" selected>1x</option>
+      <option value="2">2x</option>
+      <option value="4">4x</option>
+    </select>
+  </footer>
+</div>
+<script>
+"use strict";
+
+const state = {
+  data: null,
+  frameIndex: 0,
+  playing: false,
+  speed: 1,
+  lastRafT: null,
+  accumulatedSimT: 0,
+};
+
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+const dropEl = document.getElementById("drop");
+const controlsEl = document.getElementById("controls");
+const scrubEl = document.getElementById("scrub");
+const timeEl = document.getElementById("time");
+const playBtn = document.getElementById("playpause");
+const speedEl = document.getElementById("speed");
+const fileEl = document.getElementById("file");
+
+function resizeCanvas() {
+  const rect = canvas.parentElement.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.round(rect.width * dpr);
+  canvas.height = Math.round(rect.height * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  draw();
+}
+window.addEventListener("resize", resizeCanvas);
+
+function loadData(data) {
+  state.data = data;
+  state.frameIndex = 0;
+  state.playing = false;
+  playBtn.textContent = "Play";
+  scrubEl.max = String(Math.max(0, data.frames.length - 1));
+  scrubEl.value = "0";
+  dropEl.classList.add("hidden");
+  controlsEl.classList.remove("hidden");
+  resizeCanvas();
+}
+
+function worldToScreen(x, y) {
+  const [x0, y0, x1, y1] = state.data.bounds;
+  const rect = canvas.getBoundingClientRect();
+  const worldW = x1 - x0, worldH = y1 - y0;
+  const scale = Math.min(rect.width / worldW, rect.height / worldH) * 0.94;
+  const offX = (rect.width - worldW * scale) / 2;
+  const offY = (rect.height - worldH * scale) / 2;
+  // Flip Y: world Y grows "up" in this project's own convention (matches most 2D sim/plot
+  // conventions), screen Y grows down.
+  const sx = offX + (x - x0) * scale;
+  const sy = rect.height - (offY + (y - y0) * scale);
+  return [sx, sy, scale];
+}
+
+function ringPath(ring) {
+  const p = new Path2D();
+  ring.forEach(([x, y], i) => {
+    const [sx, sy] = worldToScreen(x, y);
+    if (i === 0) p.moveTo(sx, sy); else p.lineTo(sx, sy);
+  });
+  p.closePath();
+  return p;
+}
+
+function draw() {
+  const rect = canvas.getBoundingClientRect();
+  ctx.clearRect(0, 0, rect.width, rect.height);
+  if (!state.data) return;
+  const style = getComputedStyle(document.documentElement);
+  const wallColor = style.getPropertyValue("--wall").trim();
+  const floorColor = style.getPropertyValue("--floor").trim();
+
+  // Floor: outer walkable rings minus holes, drawn with the even-odd rule so a hole actually
+  // shows as a gap rather than needing a second, differently-coloured fill pass.
+  ctx.fillStyle = floorColor;
+  const combined = new Path2D();
+  state.data.walls.outer.forEach((ring) => combined.addPath(ringPath(ring)));
+  state.data.walls.holes.forEach((ring) => combined.addPath(ringPath(ring)));
+  ctx.fill(combined, "evenodd");
+  ctx.strokeStyle = wallColor;
+  ctx.lineWidth = 3;
+  ctx.stroke(combined);
+
+  // Targets
+  state.data.targets.forEach((t) => {
+    const [sx, sy] = worldToScreen(t.position[0], t.position[1]);
+    ctx.beginPath();
+    ctx.arc(sx, sy, 9, 0, Math.PI * 2);
+    ctx.fillStyle = t.kind === "mate" ? style.getPropertyValue("--mate").trim() : style.getPropertyValue("--sugar").trim();
+    ctx.globalAlpha = 0.85;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.beginPath();
+    ctx.arc(sx, sy, 9, 0, Math.PI * 2);
+    ctx.strokeStyle = "#000";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  });
+
+  // Agents for the current frame
+  const frame = state.data.frames[state.frameIndex];
+  if (frame) {
+    frame.agents.forEach((a) => {
+      const [sx, sy] = worldToScreen(a.x, a.y);
+      ctx.beginPath();
+      ctx.arc(sx, sy, a.status === "feeding" ? 5.5 : 4, 0, Math.PI * 2);
+      ctx.fillStyle = a.brain === "baseline" ? style.getPropertyValue("--baseline").trim() : style.getPropertyValue("--brain").trim();
+      ctx.globalAlpha = a.status === "feeding" ? 1 : 0.9;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    });
+    const total = state.data.frames[state.data.frames.length - 1].t;
+    timeEl.textContent = `${frame.t.toFixed(1)}s / ${total.toFixed(1)}s`;
+  }
+}
+
+function step(ts) {
+  if (!state.playing) { state.lastRafT = null; return; }
+  if (state.lastRafT === null) state.lastRafT = ts;
+  const dtMs = ts - state.lastRafT;
+  state.lastRafT = ts;
+  state.accumulatedSimT += (dtMs / 1000) * state.speed;
+
+  const frames = state.data.frames;
+  while (
+    state.frameIndex < frames.length - 1 &&
+    frames[state.frameIndex + 1].t - frames[0].t <= state.accumulatedSimT
+  ) {
+    state.frameIndex += 1;
+  }
+  scrubEl.value = String(state.frameIndex);
+  draw();
+  if (state.frameIndex >= frames.length - 1) {
+    state.playing = false;
+    playBtn.textContent = "Play";
+    return;
+  }
+  requestAnimationFrame(step);
+}
+
+playBtn.addEventListener("click", () => {
+  if (!state.data) return;
+  state.playing = !state.playing;
+  playBtn.textContent = state.playing ? "Pause" : "Play";
+  if (state.playing) {
+    if (state.frameIndex >= state.data.frames.length - 1) {
+      state.frameIndex = 0;
+      state.accumulatedSimT = 0;
+    } else {
+      state.accumulatedSimT = state.data.frames[state.frameIndex].t - state.data.frames[0].t;
+    }
+    state.lastRafT = null;
+    requestAnimationFrame(step);
+  }
+});
+
+scrubEl.addEventListener("input", () => {
+  state.playing = false;
+  playBtn.textContent = "Play";
+  state.frameIndex = parseInt(scrubEl.value, 10);
+  state.accumulatedSimT = state.data.frames[state.frameIndex].t - state.data.frames[0].t;
+  draw();
+});
+
+speedEl.addEventListener("change", () => { state.speed = parseFloat(speedEl.value); });
+
+fileEl.addEventListener("change", async () => {
+  const file = fileEl.files[0];
+  if (!file) return;
+  const text = await file.text();
+  loadData(JSON.parse(text));
+});
+
+// `?data=run.json` — same-origin fetch, so this only works served over http(s), not file://
+// (browsers block fetch() of local files from a file:// page). The file-picker path above works
+// either way, which is why it's the default rather than a fallback.
+const params = new URLSearchParams(window.location.search);
+const dataUrl = params.get("data");
+if (dataUrl) {
+  fetch(dataUrl).then((r) => r.json()).then(loadData).catch((e) => {
+    console.error("Could not load", dataUrl, e);
+  });
+}
+
+resizeCanvas();
+</script>
+</body>
+</html>
