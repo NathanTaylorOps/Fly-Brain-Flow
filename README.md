@@ -2,7 +2,7 @@
 
 *A crowd simulation where every agent is running a real fruit fly brain.*
 
-**Status:** M0 (plumbing) in progress · map loader and scenario config done, 24 tests green · **nothing runs end-to-end yet**
+**Status:** M0 (plumbing) in progress · map loader, scenario config, wall-aware odour and real wall-bending wind fields done, 53 tests green · **nothing runs end-to-end yet**
 
 ## What
 
@@ -39,7 +39,7 @@ pip install -e '.[dev]'
 pytest
 ```
 
-Maps can be built from a generator, an SVG or DXF floor plan, or a GeoJSON road file — see `flybrainflow/world/` and `scenarios/`.
+Maps can be built from a generator, an SVG or DXF floor plan, or a GeoJSON road file — see `flybrainflow/world/` and `scenarios/`. Odour plumes (movable, per-target, wall-aware) live in `flybrainflow/world/fields.py`; wall-routing for odour is `geodesic.py`; wind that actually bends around obstacles and speeds up through gaps (potential flow, not real turbulence) is `airflow.py`.
 
 ## Licence and credit
 

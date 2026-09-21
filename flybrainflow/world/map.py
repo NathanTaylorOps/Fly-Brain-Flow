@@ -40,6 +40,11 @@ class WalkableMap:
     outer: list[Ring] = field(default_factory=list)  # source walkable rings, world metres
     holes: list[Ring] = field(default_factory=list)  # source obstacle rings, world metres
     meta: dict[str, Any] = field(default_factory=dict)
+    # Cells outside `mask` that are still connected to the open sky for airflow purposes (a real
+    # doorway or open end), independent of pedestrian walkability. None means "no explicit
+    # openings declared" -- AirflowField then falls back to treating the raster's outer edge as
+    # open, a coarser approximation that can be wrong when padding is only a cell or two deep.
+    air_open: np.ndarray | None = field(default=None, repr=False, compare=False)
     _dist: np.ndarray | None = field(default=None, repr=False, compare=False)
     _nearest_idx: np.ndarray | None = field(default=None, repr=False, compare=False)
 
@@ -219,15 +224,27 @@ def _rect(x0, y0, x1, y1) -> Ring:
     return np.array([[x0, y0], [x1, y0], [x1, y1], [x0, y1]], float)
 
 
-def corridor(length: float = 40.0, width: float = 5.0, resolution: float = 0.1, padding: float = 0.5) -> WalkableMap:
-    """A straight corridor. Spawn at either end for the two-stream lane test."""
-    return WalkableMap.from_rings(
+def corridor(
+    length: float = 40.0, width: float = 5.0, resolution: float = 0.1, padding: float = 0.5, open_ends: bool = False
+) -> WalkableMap:
+    """A straight corridor. Spawn at either end for the two-stream lane test.
+
+    `open_ends=True` removes the padding at the two short ends specifically (side walls stay),
+    so the walkable area reaches the map's edge there. Pedestrians still can't leave (the sim
+    boundary is still the sim boundary) but it means the corridor has a real doorway for wind to
+    enter and leave through — without this, `AirflowField` correctly reports zero wind here,
+    because a box walled on every side genuinely has nowhere for outside air to come from.
+    """
+    m = WalkableMap.from_rings(
         [_rect(0, 0, length, width)],
         resolution=resolution,
         padding=padding,
         name="corridor",
-        meta={"length": length, "width": width},
+        meta={"length": length, "width": width, "open_ends": open_ends},
     )
+    if open_ends:
+        _open_ends_x(m, y_lo=0.0, y_hi=width)
+    return m
 
 
 def bottleneck(
@@ -237,21 +254,54 @@ def bottleneck(
     gap_length: float = 2.0,
     resolution: float = 0.1,
     padding: float = 0.5,
+    open_ends: bool = False,
 ) -> WalkableMap:
-    """A corridor that narrows to `gap_width` for `gap_length` metres in the middle. The doorway test."""
+    """A corridor that narrows to `gap_width` for `gap_length` metres in the middle. The doorway test.
+
+    See `corridor()` for what `open_ends=True` does and why it's needed before `AirflowField`
+    will show any real wind through the gap.
+    """
     if gap_width >= width:
         raise ValueError("gap_width must be narrower than width")
     xa, xb = (length - gap_length) / 2, (length + gap_length) / 2
     wall = (width - gap_width) / 2
     holes = [_rect(xa, 0, xb, wall), _rect(xa, width - wall, xb, width)]
-    return WalkableMap.from_rings(
+    m = WalkableMap.from_rings(
         [_rect(0, 0, length, width)],
         holes,
         resolution=resolution,
         padding=padding,
         name="bottleneck",
-        meta={"length": length, "width": width, "gap_width": gap_width, "gap_length": gap_length, "gap_x": (xa, xb)},
+        meta={
+            "length": length,
+            "width": width,
+            "gap_width": gap_width,
+            "gap_length": gap_length,
+            "gap_x": (xa, xb),
+            "open_ends": open_ends,
+        },
     )
+    if open_ends:
+        _open_ends_x(m, y_lo=0.0, y_hi=width)
+    return m
+
+
+def _open_ends_x(m: WalkableMap, y_lo: float, y_hi: float) -> None:
+    """Declare the entire left/right padding depth, for y in [y_lo, y_hi), as open to the sky for
+    airflow (`AirflowField`) — a real doorway. This does NOT change where pedestrians can walk
+    (`m.mask` is untouched); it only tells the airflow solver where outside air can actually get
+    in, since a wall this end simply isn't there to block it."""
+    iy0, iy1 = m.world_to_cell([[0.0, y_lo], [0.0, y_hi]])[1]
+    iy0, iy1 = int(iy0), int(min(iy1 + 1, m.ny))
+    length = m.meta.get("length", 0.0)
+    ix_left = int(m.world_to_cell([[0.0, y_lo]])[0][0])  # first walkable column, at the x=0 end
+    # Query a touch past `length`, not exactly at it -- `length` can land exactly on a cell
+    # boundary, which made the naive "+1" version miss the right-hand opening entirely.
+    ix_right = int(m.world_to_cell([[length + m.resolution / 2, y_lo]])[0][0])
+    if m.air_open is None:
+        m.air_open = np.zeros_like(m.mask)
+    m.air_open[iy0:iy1, 0:ix_left] = True
+    m.air_open[iy0:iy1, ix_right : m.nx] = True
 
 
 def ring(radius: float = 36.6, lane_width: float = 3.5, resolution: float = 0.25, padding: float = 0.5) -> WalkableMap:

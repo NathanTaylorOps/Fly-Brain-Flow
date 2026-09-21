@@ -13,9 +13,23 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl, urlsplit
 
+from .airflow import AirflowField
+from .fields import OdorField, OdorSource, Wind
+from .fields import from_scenario as odor_field_for_scenario
+from .geodesic import geodesic_distance_field
 from .map import GENERATORS, WalkableMap
 
-__all__ = ["WalkableMap", "load_map", "load_map_for_scenario"]
+__all__ = [
+    "WalkableMap",
+    "load_map",
+    "load_map_for_scenario",
+    "Wind",
+    "OdorSource",
+    "OdorField",
+    "odor_field_for_scenario",
+    "geodesic_distance_field",
+    "AirflowField",
+]
 
 
 def load_map(source: str, resolution: float = 0.1, units_to_m: float | None = None, base_dir: str | Path | None = None, **options: Any) -> WalkableMap:

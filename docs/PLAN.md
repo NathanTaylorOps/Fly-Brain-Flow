@@ -286,6 +286,9 @@ Note that all of these show up at **tens to hundreds** of agents. Thousands is f
 | Cloud bill creeps | Low | Medium | Caps before first use |
 | Car mode looks like a gimmick and cheapens the real result | Medium | Low | Present it honestly; lead with the braking mapping, which does hold up |
 | Mate target ends up just "second sugar target" | Medium | Low | First thing to cut |
+| Wall-aware odour (geodesic distance around barriers, needed for a stadium/station venue) is plain Dijkstra — correct, not fast; recomputing it every frame for a live-dragged target on a full-size map could be too slow | Medium | Medium | Only recomputed when a target's position actually changes, not every step; benchmark on the real venue size before relying on live-drag at scale, swap in a vectorized wavefront approximation if it's too slow |
+| The wind model (potential flow) gets deflection and gap speed-up right but has no turbulence, eddies, or wake recirculation — a real pillar sheds a churning vortex behind it that this can never show | High | Low–Medium | Documented as a permanent limitation, not a bug to eventually fix; matters only if a specific result turns out to hinge on turbulent behaviour, which would need real CFD and is out of scope |
+| Wind only flows through venue geometry where an opening is explicitly declared (`open_ends` or similar) — a floor plan with no modelled doors/gaps will show zero wind, correctly but unhelpfully | Medium | Medium | Every real venue (stadium/station) needs its actual entrances/gates traced as openings when the map is built, not assumed; a venue with no declared openings needs to visibly say so rather than silently return zero |
 
 ---
 
