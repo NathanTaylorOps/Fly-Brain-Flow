@@ -41,18 +41,70 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from flybrainflow.data_config import MALECNS_BULK_BUCKET, MALECNS_VERSION, REQUIRED_NEURON_TYPES
+from flybrainflow.data_config import (
+    GIANT_FIBRE_TYPES,
+    JOHNSTONS_ORGAN_PREFIX,
+    KNOWN_GAPS,
+    LC10_SUBTYPE_PREFIX,
+    MALECNS_BULK_BUCKET,
+    MALECNS_VERSION,
+    REQUIRED_NEURON_TYPES,
+)
+
+# The only files M1 Step 2's weighted-graph spiking scaffold actually needs -- neurons + weighted
+# synapse edges. The full bucket is ~31GB (11 files, see docs/JOURNAL.md's 2026-09-26 entry for the
+# real per-file sizes) which exceeds Kaggle's ~20.9GB free disk on /kaggle/working; everything else
+# (body-stats, the two other connectome-weights variants, all syn-partners variants, syn-points,
+# tbar-neurotransmitters) is synapse-point/spatial-level detail not needed until much later (e.g.
+# M3's inspector). Override with --files if a later step needs more.
+DEFAULT_FILES = (
+    "body-annotations-male-cns-v1.0-minconf-0.5.feather",
+    "body-neurotransmitters-male-cns-v1.0.feather",
+    "connectome-weights-male-cns-v1.0-minconf-0.5-significant-only.feather",
+)
+
+
+def _get_neuprint_token() -> str | None:
+    """NEUPRINT_TOKEN the normal way (Codespaces/local env var) first, falling back to Kaggle's
+    own Secrets API -- Kaggle does NOT inject secrets into os.environ the way Codespaces does, they
+    have to be fetched explicitly via kaggle_secrets.UserSecretsClient. Confirmed live 2026-09-26:
+    the exact secret name is whatever you named it in Add-ons -> Secrets (case-sensitive) -- pass
+    --secret-name if you didn't call it NEUPRINT_TOKEN there.
+    """
+    token = os.environ.get("NEUPRINT_TOKEN")
+    if token:
+        return token
+    try:
+        from kaggle_secrets import UserSecretsClient
+    except ImportError:
+        return None
+    try:
+        return UserSecretsClient().get_secret(_SECRET_NAME)
+    except Exception:
+        return None
+
+
+_SECRET_NAME = "NEUPRINT_TOKEN"
 
 
 def main() -> None:
+    global _SECRET_NAME
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--out", required=True, help="directory to download the bulk connectivity table into")
     parser.add_argument("--skip-download", action="store_true", help="only run the neuPrint checks, skip the (large) bulk download")
+    parser.add_argument("--files", nargs="+", default=list(DEFAULT_FILES), help="which bucket filenames to download (default: the 3 needed for Step 2, not the full ~31GB bucket)")
+    parser.add_argument("--secret-name", default="NEUPRINT_TOKEN", help="Kaggle secret name to look up if NEUPRINT_TOKEN isn't in the environment (case-sensitive, default NEUPRINT_TOKEN)")
     args = parser.parse_args()
+    _SECRET_NAME = args.secret_name
 
-    token = os.environ.get("NEUPRINT_TOKEN")
+    token = _get_neuprint_token()
     if not token:
-        parser.error("NEUPRINT_TOKEN is not set -- add it as a Kaggle secret (Add-ons -> Secrets) and attach it to this notebook")
+        parser.error(
+            "NEUPRINT_TOKEN is not set and no Kaggle secret was found -- either set the "
+            "NEUPRINT_TOKEN environment variable, or add it as a Kaggle secret (Add-ons -> "
+            "Secrets), attach it to this notebook, and pass --secret-name if you didn't name it "
+            "NEUPRINT_TOKEN there"
+        )
 
     try:
         from neuprint import Client
@@ -89,13 +141,23 @@ def main() -> None:
         if n == 0:
             missing.append(t)
 
+    # -- LC10 (prefix match, not exact -- see data_config.py's LC10_SUBTYPE_PREFIX comment) --
+    lc10_df, _ = fetch_neurons(NeuronCriteria(type=f"{LC10_SUBTYPE_PREFIX}.*", regex=True, client=client))
+    print(f"\n  LC10 (type matches '{LC10_SUBTYPE_PREFIX}.*'): {len(lc10_df)} neuron(s)")
+    if len(lc10_df):
+        print(f"    exact subtypes found: {sorted(lc10_df['type'].dropna().unique().tolist())}")
+
+    # -- KNOWN_GAPS reminder (already confirmed absent, 2026-09-26 -- see data_config.py) --
+    print(f"\n  KNOWN_GAPS (confirmed absent under type/flywireType/receptorType, not re-checked here): {list(KNOWN_GAPS)}")
+
     # -- Johnston's organ / giant-fibre pathway (not exact-type-string checks) --
-    jo_df, _ = fetch_neurons(NeuronCriteria(type="JO-.*", regex=True, client=client))
-    print(f"\n  Johnston's organ (type matches 'JO-.*'): {len(jo_df)} neuron(s)")
+    jo_df, _ = fetch_neurons(NeuronCriteria(type=f"{JOHNSTONS_ORGAN_PREFIX}.*", regex=True, client=client))
+    print(f"\n  Johnston's organ (type matches '{JOHNSTONS_ORGAN_PREFIX}.*'): {len(jo_df)} neuron(s)")
     if len(jo_df):
         print(f"    exact types found: {sorted(jo_df['type'].dropna().unique().tolist())}")
-    gf_df, _ = fetch_neurons(NeuronCriteria(type="(GF|PSI|TTMn).*", regex=True, client=client))
-    print(f"  Giant-fibre pathway (type matches '(GF|PSI|TTMn).*'): {len(gf_df)} neuron(s)")
+    gf_pattern = "(" + "|".join(GIANT_FIBRE_TYPES) + ").*"
+    gf_df, _ = fetch_neurons(NeuronCriteria(type=gf_pattern, regex=True, client=client))
+    print(f"  Giant-fibre pathway (type matches '{gf_pattern}'): {len(gf_df)} neuron(s)")
     if len(gf_df):
         print(f"    exact types found: {sorted(gf_df['type'].dropna().unique().tolist())}")
 
@@ -105,7 +167,7 @@ def main() -> None:
     if args.skip_download:
         print("\n--skip-download set -- not pulling the bulk connectivity table.")
     else:
-        print(f"\nDownloading bulk connectivity table from {MALECNS_BULK_BUCKET} -> {out_dir} ...")
+        print(f"\nDownloading {len(args.files)} file(s) from {MALECNS_BULK_BUCKET} -> {out_dir} ...")
         out_dir.mkdir(parents=True, exist_ok=True)
         try:
             import gcsfs
@@ -113,9 +175,11 @@ def main() -> None:
             parser.error("gcsfs isn't installed -- run: pip install gcsfs pyarrow")
         fs = gcsfs.GCSFileSystem(token="anon")  # public bucket, no GCS credentials needed
         bucket_path = MALECNS_BULK_BUCKET.removeprefix("gs://")
-        remote_files = fs.ls(bucket_path)
-        for remote in remote_files:
-            name = Path(remote).name
+        # Only the files named in --files (default: DEFAULT_FILES, the 3 actually needed) -- NOT
+        # fs.ls(bucket_path), which would pull the whole ~31GB bucket and blow Kaggle's ~20.9GB
+        # free disk (confirmed live 2026-09-26 -- see docs/JOURNAL.md for the real per-file sizes).
+        for name in args.files:
+            remote = bucket_path + name
             local = out_dir / name
             print(f"  {remote} -> {local}")
             fs.get(remote, str(local))
@@ -133,7 +197,9 @@ def main() -> None:
     print("=" * 60)
     print(f"dataset tag confirmed: {tag_ok} ({MALECNS_VERSION})")
     print(f"flywireType column present: {has_flywire_type}")
-    print(f"missing required types: {missing or 'none'}")
+    print(f"missing required types (unexpected -- investigate): {missing or 'none'}")
+    print(f"known gaps (expected absent, see data_config.KNOWN_GAPS): {list(KNOWN_GAPS)}")
+    print(f"LC10 subtypes found: {sorted(lc10_df['type'].dropna().unique().tolist()) if len(lc10_df) else 'NONE FOUND'}")
     print(f"Johnston's organ types found: {sorted(jo_df['type'].dropna().unique().tolist()) if len(jo_df) else 'NONE FOUND'}")
     print(f"giant-fibre-pathway types found: {sorted(gf_df['type'].dropna().unique().tolist()) if len(gf_df) else 'NONE FOUND'}")
     print(f"files hashed: {list(hashes.keys())}")

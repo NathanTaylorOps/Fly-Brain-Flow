@@ -1,11 +1,32 @@
 # Pinned dataset versions. Filled in at first data pull. Never "latest".
 #
-# dataset      version        source                                   sha256 of downloaded files
-# MaleCNS      male-cns:v1.0  https://male-cns.janelia.org/download/   (pending -- run scripts/pin_dataset.py on Kaggle)
-# FlyWire      (calibration only; not shipped)                          (pending)
+# dataset: MaleCNS
+# version: male-cns:v1.0
+# source:  gs://flyem-male-cns/v1.0/connectome-data/flat-connectome/ (public GCS bucket, anon access)
+# confirmed live against neuPrint (Client(...).fetch_datasets()) on 2026-09-26 -- served alongside
+# hemibrain:v1.2.1, male-cns:v0.9, manc:v1.0/v1.2.1/v1.2.3, mushroombody, optic-lobe:v1.0.1/v1.1.
 #
-# male-cns:v1.0 confirmed as the current tag by desk research against Janelia's own MaleCNS
-# project page on 2026-09-26 (v1.0 released 2026-06-08, publication 2026-09-03, no newer tag
-# announced). NOT yet confirmed directly against a live neuPrint query -- that, plus the actual
-# bulk pull and hashing, is scripts/pin_dataset.py's job; this line gets the real sha256 once that
-# script's been run for real, with a working NEUPRINT_TOKEN, which this sandbox doesn't have.
+# Files pulled 2026-09-26 (only the 3 actually needed for M1 Step 2's weighted-graph spiking
+# scaffold -- neurons + weighted synapse edges -- not the full ~31GB bucket; see
+# scripts/pin_dataset.py's --files default and data/README.md):
+#
+#   body-annotations-male-cns-v1.0-minconf-0.5.feather
+#     sha256: 2177e246113e4cfbf1e7772ec37c6da1955ff22e8063d0b1f833101f99a9a3b2
+#   body-neurotransmitters-male-cns-v1.0.feather
+#     sha256: 95c9289220663abeb3409f3ad9e5a7f8a53f8093f5139d15502cd08da8879621
+#   connectome-weights-male-cns-v1.0-minconf-0.5-significant-only.feather
+#     sha256: 5c536423a62a688e59e7b441f9c04d6272c9a1f017e35814cf561f8c275d9e9e
+#
+# The other bucket files (body-stats, the two other connectome-weights variants, all syn-partners
+# variants, syn-points, tbar-neurotransmitters) were deliberately NOT pulled -- synapse-point/
+# spatial-level detail not needed until later (e.g. M3's inspector), and pulling all ~11 files
+# exceeds Kaggle's free disk (bucket totals ~31GB vs. 20.9GB free on /kaggle/working).
+#
+# FlyWire     (calibration only; not shipped)                          (pending)
+#
+# KNOWN GAP (confirmed 2026-09-26, see flybrainflow/data_config.py's KNOWN_GAPS comment for the
+# full writeup): Or42b, Gr64f, Gr5a, Or47b do not exist in male-cns:v1.0 under `type`,
+# `flywireType`, or `receptorType` -- checked all three against the live 211,577-row annotation
+# table, zero matches on every one. The antennal nerve itself is present (entryNerve == "AN"), so
+# the fibers exist but were never given receptor-gene-level identity by MaleCNS's own annotation
+# pipeline. Resolution deferred to Step 4 (sensory model) -- not a Step 1 blocker.

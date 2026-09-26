@@ -26,13 +26,13 @@ MALECNS_BULK_BUCKET = "gs://flyem-male-cns/v1.0/connectome-data/flat-connectome/
 # The neuron *types* PLAN.md's sensory/motor tables name as needed for the real brain (Step 4) --
 # checked for presence/annotation coverage in male-cns:v1.0 as part of Step 1, before anything is
 # built assuming they exist. See `scripts/pin_dataset.py`. Exact-match on the `type` annotation
-# field -- correct for every name below except the two noted separately.
+# field -- correct for every name below except LC10, which needs prefix matching (see below), and
+# the four ORN/GRN types documented as a confirmed gap in KNOWN_GAPS below.
 REQUIRED_NEURON_TYPES = (
-    "Or42b",  # sugar/food odour (ORN)
-    "Gr64f",  # sugar taste (GRN)
-    "Gr5a",  # sugar taste (GRN)
-    "Or47b",  # mate-relevant odour (ORN)
-    "LC10",  # visual, mate-seeking relevant
+    "Or42b",  # sugar/food odour (ORN) -- CONFIRMED GAP, see KNOWN_GAPS
+    "Gr64f",  # sugar taste (GRN) -- CONFIRMED GAP, see KNOWN_GAPS
+    "Gr5a",  # sugar taste (GRN) -- CONFIRMED GAP, see KNOWN_GAPS
+    "Or47b",  # mate-relevant odour (ORN) -- CONFIRMED GAP, see KNOWN_GAPS
     "LC16",  # visual, looming/avoidance relevant
     "DNa02",  # descending, steering
     "DNa01",  # descending, steering
@@ -43,10 +43,44 @@ REQUIRED_NEURON_TYPES = (
     "MBON32",  # mushroom body output, learned valence
 )
 
+# LC10 is NOT an exact-match miss -- it's real, just split across 7 confirmed subtypes rather than
+# one bare "LC10" string: LC10_unclear, LC10a, LC10b, LC10c-1, LC10c-2, LC10d, LC10e (960 neurons
+# total, confirmed live against neuPrint 2026-09-26). Anything that needs "LC10" (visual,
+# mate-seeking) should match this prefix, not REQUIRED_NEURON_TYPES' exact-match list above.
+LC10_SUBTYPE_PREFIX = "LC10"  # use e.g. `type.str.startswith(LC10_SUBTYPE_PREFIX)`, not `type ==`
+
+# CONFIRMED GAP (checked live against neuPrint + the downloaded body-annotations table,
+# 2026-09-26; 211,577 total neurons in male-cns:v1.0): Or42b, Gr64f, Gr5a, and Or47b do not exist
+# in male-cns:v1.0 under any of `type`, `flywireType`, or `receptorType` -- checked all three,
+# zero matches on every one. This is not a search-string problem. The antennal nerve ("AN") DOES
+# appear in the `entryNerve` column, meaning antennal-lobe input fibers are physically present in
+# this CNS-only EM volume -- but `receptorType` carries only three unrelated values
+# (putative_IR52b, putative_ppk23, putative_ppk25), so MaleCNS's own annotation pipeline never
+# assigned these axon terminals a receptor-gene identity the way hemibrain/FlyWire do. The fibers
+# are there; the fine-grained labels for them are not.
+#
+# Substitution / resolution is a Step 4 (sensory model) decision, not a Step 1 one -- Step 1's job
+# was confirm-or-document, and this is now documented. The live options when Step 4 arrives:
+#   (a) cross-reference hemibrain or FlyWire (which DO carry these exact types) by antennal-lobe
+#       glomerulus identity, and inject synthetic input at the matching MaleCNS glomerulus/PN;
+#   (b) drop these four from the sensory model and use MaleCNS's own coarser antennal-lobe
+#       projection-neuron/local-interneuron annotations as the food-odour/taste input proxy instead;
+#   (c) accept the fibers are present but untyped, and treat "food odour" / "sugar taste" input as
+#       an unnamed antennal-lobe glomerulus rather than a named receptor -- weakest fidelity, least
+#       extra work.
+# None of these is picked yet -- flag for Nathan when Step 4 planning starts.
+KNOWN_GAPS = ("Or42b", "Gr64f", "Gr5a", "Or47b")
+
 # PLAN.md also names "Johnston's organ" (the antennal mechanosensory organ that senses wind/sound,
 # via several JO-* subtype neurons, not one exact type string) and "the giant-fibre pathway" (the
 # escape circuit, several specifically-named cells rather than one type) -- neither maps cleanly
-# onto a single `type ==` check the way `REQUIRED_NEURON_TYPES` above does. `scripts/pin_dataset.py`
-# checks these two separately, by `type` prefix/class search rather than exact match, and this
-# module gets updated with whatever exact type strings that search turns up once it's actually run
-# against neuPrint -- deliberately left open here rather than guessed at.
+# onto a single `type ==` check the way `REQUIRED_NEURON_TYPES` above does. Confirmed live against
+# neuPrint 2026-09-26:
+#   Johnston's organ (type matches "JO-.*"): 672 neurons, 33 exact subtypes -- JO-A-unclear, JO-A1,
+#     JO-A2, JO-A3, JO-A4, JO-B-unclear, JO-B1_a, JO-B1_b, JO-B1_c, JO-B2, JO-B3, JO-B4_a, JO-B4_b,
+#     JO-CA1, JO-CA2, JO-CL, JO-CM, JO-DA, JO-DP, JO-ED1, JO-ED2_a, JO-ED2_b, JO-ED2_c, JO-EV1,
+#     JO-EV2, JO-EV3, JO-EV4, JO-EV5, JO-EV6, JO-FD1, JO-FD2, JO-FV, JO-mz, JO-unclear.
+#   Giant-fibre pathway (type matches "(GF|PSI|TTMn).*"): 38 neurons -- GFC1, GFC2, GFC3, GFC4,
+#     PSI, TTMn.
+JOHNSTONS_ORGAN_PREFIX = "JO-"
+GIANT_FIBRE_TYPES = ("GFC1", "GFC2", "GFC3", "GFC4", "PSI", "TTMn")
