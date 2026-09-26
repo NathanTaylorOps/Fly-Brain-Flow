@@ -42,7 +42,7 @@ It's long and deliberate, on purpose: **[docs/PLAN.md](docs/PLAN.md)**. Scope, d
 ## Running it
 
 ```
-pip install -e '.[dev]'
+pip install -e '.[dev,brain]'
 pytest
 
 python scripts/record_demo.py --duration 60

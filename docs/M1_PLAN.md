@@ -228,6 +228,22 @@ it forward in time, spike by spike, for one fly.
 Done when: the scaffold runs one fly's full connectome forward in time, on a GPU, without
 crashing or blowing up, on made-up/neutral input — before it's asked to do anything sensible yet.
 
+**Status: built, 2026-09-26 — logic-tier verification pending, full-connectome check not yet run.**
+`flybrainflow/spiking/` (`connectivity.py`, `dynamics.py`, `simulator.py`) implements the LIF
+update rule described above: integer/fixed-point accumulation via the float64-exact-integer trick
+(see `dynamics.py`'s own docstring for why that's the actual determinism mechanism, not just
+`torch.use_deterministic_algorithms`), guard rails on membrane potential, refractory handling, and
+the "one shared weight matrix, many flies" batched-from-one shape. `torch` can't be installed in
+the sandbox this was built in (same class of allowlist gap as `pytest` earlier, not a problem with
+the approach) — every line was hand-traced against worked examples before being written, and the
+non-torch (NumPy id-mapping) logic was actually run and confirmed, but the torch-dependent tests
+(`tests/test_spiking_connectivity.py`, `tests/test_spiking_dynamics.py`,
+`tests/test_spiking_simulator.py`) have not yet been executed by anyone. `.github/workflows/tests.yml`
+updated to install the `brain` extra (`torch`) so these run in CI going forward, not just locally.
+`scripts/run_full_connectome_check.py` is the real, Kaggle-only, GPU version of Step 2's own "done
+when" criterion — not run yet either. Both need to happen, in that order, before this step is
+actually done rather than just built.
+
 ## Step 3 — The calibration gate
 
 This is the actual trust-building step, and it's the one PLAN.md is strictest about: "I reproduce
