@@ -146,7 +146,7 @@ Why: turns the milestone list into visible movement.
 - Done when: nine open issues.
 
 **E2. Journal.**
-`docs/JOURNAL.md` is in the first commit with one entry. Add a line whenever something moves. Three lines max per entry: what happened, what's next, what got cut.
+`docs/JOURNAL.md` is a private working log, gitignored, not part of the public repo. Add a line whenever something moves. Three lines max per entry: what happened, what's next, what got cut.
 
 **E3. The two rules that keep this cheap.**
 - Tokens and keys go in Codespaces secrets. Never in a file. The `.gitignore` in the first commit blocks `.env` files as a backstop, not as the plan.

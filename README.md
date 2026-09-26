@@ -4,7 +4,13 @@
 
 *A crowd simulation where every agent is running a real fruit fly brain.*
 
-**Status:** M0 (plumbing) **done**, reviewed · map loader, scenario config, wall-aware odour, wall-bending wind, the 2D collision solver, the spawn/feed/leave agent lifecycle (fly-brained/baseline cohorts sharing one venue), the baseline steering model, the toy brain, the sim loop, the recorder and a 2D playback viewer all built, tested and independently reviewed, 125 tests green · **still no real connectome — that's M1**
+![Two streams of agents crossing a corridor in the M0 playback viewer](assets/demo.png)
+
+**Status:** M0 (plumbing) is done and independently reviewed twice — once for correctness, once for
+quality — with 139 tests green. That's the map loader, scenario config, wall-aware odour, wall-bending
+wind, the 2D collision solver, the spawn/feed/leave agent lifecycle, the baseline steering model, the
+toy brain, the sim loop, the recorder, and the playback viewer above. **There's still no real
+connectome — that's M1**, scoped in [docs/M1_PLAN.md](docs/M1_PLAN.md) and not yet started.
 
 ## What
 
@@ -43,13 +49,30 @@ python -m http.server -d viewer 8000
 # open http://localhost:8000/?data=run.json
 ```
 
-That runs the two-stream corridor scenario, records it, and exports it for `viewer/index.html` — a
-self-contained 2D top-down playback (no build step, no CDN): dots per agent, colour-coded
-fly-brained vs. baseline, target(s) marked, venue walls drawn from the map's own geometry. It's
-deliberately not the eventual live 3D neuron viewer the plan describes — that's M3 scope, once a
-real brain exists to click into. This is the M0 version: proof a run can be recorded and watched.
+That runs the two-stream corridor scenario (the screenshot above), records it, and exports it for
+`viewer/index.html` — a self-contained 2D top-down playback (no build step, no CDN): dots per
+agent, colour-coded fly-brained vs. baseline, target(s) marked, venue walls drawn from the map's
+own geometry. It's deliberately not the eventual live 3D neuron viewer the plan describes — that's
+M3 scope, once a real brain exists to click into. This is the M0 version: proof a run can be
+recorded and watched.
 
-Maps can be built from a generator, an SVG or DXF floor plan, or a GeoJSON road file — see `flybrainflow/world/` and `scenarios/`. Odour plumes (movable, per-target, wall-aware) live in `flybrainflow/world/fields.py`; wall-routing for odour is `geodesic.py`; wind that actually bends around obstacles and speeds up through gaps (potential flow, not real turbulence) is `airflow.py`; the 2D circle-collision solver that actually moves agents — the same one for fly-brained and baseline agents alike — is `physics.py`. The agent lifecycle (spawning at entry points up to a population cap, feeding at a target until its slot frees up, leaving) lives in `flybrainflow/agents.py`, for open-boundary scenarios only — the closed/ring-road population setup is a separate M2 task. `agents.build_cohorts()` sets up a fly-brained and a baseline `Population` sharing one venue — same target slots, same id sequence — for the "standard crowd model running in the same space" comparison the plan calls for. The standard-crowd-model reference this project measures the real fly brain against — goal-seeking along the wall-aware geodesic field, with social-force-style pedestrian and wall repulsion — is `flybrainflow/brains/baseline.py`. The toy brain — a small fake-neuron stand-in for the real 166k-neuron connectome, built so the surrounding plumbing gets debugged before the real dataset lands — is `flybrainflow/brains/toy.py`; both brains move through the same `physics.step()`, so the eventual comparison is of steering decisions, not of two different simulators. `flybrainflow/sim.py`'s `Sim` ties all of that into one runnable tick — spawn, steer (per cohort, through its own brain), move (one shared physics call across every cohort), feed, leave. `flybrainflow/recorder.py`'s `Recorder` captures each tick to an `.npz` file — every agent's position, and, for fly-brained agents specifically, the exact 6-channel sensory input its brain saw that tick, per the plan's "replay debugger for agents" design. `flybrainflow/viewer_export.py` turns a recording into the JSON `viewer/index.html` plays back.
+### Module map
+
+| Piece | Lives in | What it does |
+|---|---|---|
+| Maps | `flybrainflow/world/map.py`, `scenarios/` | Built from a generator, an SVG/DXF floor plan, or a GeoJSON road file — every loader produces the same walkable grid. |
+| Odour | `flybrainflow/world/fields.py` | Movable, per-target, wall-aware plumes. |
+| Odour routing | `flybrainflow/world/geodesic.py` | Wall-aware shortest-path routing for odour and steering alike. |
+| Wind | `flybrainflow/world/airflow.py` | Bends around obstacles and speeds up through gaps (potential flow, not real turbulence). |
+| Physics | `flybrainflow/world/physics.py` | The 2D circle-collision solver that actually moves agents — one solver, fly-brained and baseline alike. |
+| Agent lifecycle | `flybrainflow/agents.py` | Spawn (up to a population cap), feed at a target until its slot frees up, leave — open-boundary scenarios; `build_cohorts()` sets up a fly-brained and a baseline `Population` sharing one venue for a fair comparison. |
+| Baseline brain | `flybrainflow/brains/baseline.py` | The standard-crowd-model reference: goal-seeking along the wall-aware geodesic field, social-force-style repulsion. |
+| Toy brain | `flybrainflow/brains/toy.py` | A small fake-neuron stand-in for the real 166k-neuron connectome, so the surrounding plumbing gets debugged before the real dataset lands. |
+| Sim loop | `flybrainflow/sim.py` | Ties it all into one runnable tick: spawn, steer (per cohort, through its own brain), move (one shared physics call), feed, leave. |
+| Recorder | `flybrainflow/recorder.py` | Captures each tick to `.npz` — every agent's position, and, for fly-brained agents, the exact sensory input its brain saw that tick (the "replay debugger for agents" design). |
+| Viewer export | `flybrainflow/viewer_export.py` | Turns a recording into the JSON `viewer/index.html` plays back. |
+
+Both brains move through the same `physics.step()`, so the eventual fly-brain-vs-baseline comparison is of steering decisions, not of two different simulators.
 
 ## Licence and credit
 

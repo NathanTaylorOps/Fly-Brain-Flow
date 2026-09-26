@@ -1,0 +1,33 @@
+# Secrets — never commit these. Real secrets live in Codespaces secrets.
+.env
+.env.*
+*.token
+secrets/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Data and recordings — these live on Kaggle / object storage, not in git.
+data/*
+!data/VERSION
+!data/README.md
+recordings/
+*.parquet
+*.npz
+*.feather
+viewer/*.json
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Private working journal -- not part of the public portfolio, kept local-only.
+docs/JOURNAL.md
