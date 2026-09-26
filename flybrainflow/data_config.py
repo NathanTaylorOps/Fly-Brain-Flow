@@ -5,10 +5,14 @@ directly, a version bump (or a rollback) is a one-line change, not a grep-and-re
 however many places ended up needing it.
 
 Confirmed against Janelia's own MaleCNS project page (male-cns.janelia.org) on 2026-09-26:
-v1.0 was released 2026-06-08, with the accompanying publication on 2026-09-03 -- still the current,
-latest tag as of this check. Re-confirm this against neuPrint directly
-(`Client(...).fetch_datasets()`, see `scripts/pin_dataset.py`) before trusting it blindly for
-anything that matters, since a desk check today doesn't prove it hasn't moved since.
+v1.0 was released 2026-06-08. The project page's "accompanying publication" date, 2026-09-03,
+is NOT the same date as the Berg et al. bioRxiv preprint ATTRIBUTION.md cites (2025.10.09.680999)
+-- unclear whether 2026-09-03 is that same paper's later peer-reviewed journal publication date, or
+a different publication entirely. Not resolved; check before citing "the publication" anywhere
+that needs to be precise about which one. male-cns:v1.0 is still the current, latest tag as of this
+check either way. Re-confirm this against neuPrint directly (`Client(...).fetch_datasets()`, see
+`scripts/pin_dataset.py`) before trusting it blindly for anything that matters, since a desk check
+today doesn't prove it hasn't moved since.
 """
 
 from __future__ import annotations
@@ -50,7 +54,13 @@ REQUIRED_NEURON_TYPES = (
 LC10_SUBTYPE_PREFIX = "LC10"  # use e.g. `type.str.startswith(LC10_SUBTYPE_PREFIX)`, not `type ==`
 
 # CONFIRMED GAP (checked live against neuPrint + the downloaded body-annotations table,
-# 2026-09-26; 211,577 total neurons in male-cns:v1.0): Or42b, Gr64f, Gr5a, and Or47b do not exist
+# 2026-09-26; 211,577 ROWS in male-cns:v1.0's annotation table at minconf-0.5 -- NOT reconciled
+# yet against the 166,691-neuron figure PLAN.md/README.md cite from Janelia's own published
+# headline count. The 211,577 is a raw row count of the downloaded annotation table, which likely
+# includes partially-traced or lower-confidence bodies beyond Janelia's "clean" published count,
+# but that's an unverified guess, not a confirmed explanation -- don't treat either number as
+# corrected by the other until someone actually checks what's in the ~45k-row gap.):
+# Or42b, Gr64f, Gr5a, and Or47b do not exist
 # in male-cns:v1.0 under any of `type`, `flywireType`, or `receptorType` -- checked all three,
 # zero matches on every one. This is not a search-string problem. The antennal nerve ("AN") DOES
 # appear in the `entryNerve` column, meaning antennal-lobe input fibers are physically present in

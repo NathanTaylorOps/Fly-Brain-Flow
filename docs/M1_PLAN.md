@@ -119,6 +119,49 @@ missing.
 The actual simulator: takes a connectivity table (neurons + weighted, signed synapses) and steps
 it forward in time, spike by spike, for one fly.
 
+- **Sub-task 0, before any graph gets built: verify the two pulled files actually join.**
+  `body-annotations-male-cns-v1.0-minconf-0.5.feather` (neuron identities/types) and
+  `connectome-weights-male-cns-v1.0-minconf-0.5-significant-only.feather` (weighted edges) were
+  pulled separately in Step 1 and neither Step 1's neuPrint checks nor anything in this repo has
+  yet confirmed they key together cleanly on body ID at the same confidence threshold. Load both,
+  confirm the weights table's body IDs are a subset of (or match) the annotation table's, and
+  record the real neuron count, edge count, and column names/dtypes of the weights table in
+  `data/README.md` — this is cheap, removes an unknown before any graph-building work starts, and
+  is exactly the kind of thing that should surface now rather than mid-build.
+  Real pulled file sizes (measured 2026-09-26, worth having on hand for the GPU-memory/reload risk
+  in `docs/PLAN.md`'s risk table): `body-annotations-...feather` 14.5MB, `body-neurotransmitters-
+  ...feather` 43.3MB, `connectome-weights-...-significant-only.feather` 502.2MB.
+- **The brain-interface contract, decided now, not discovered mid-build.** `Sim` calls every brain
+  through one fixed shape — `desired_velocities(ids, positions, radii, max_speed_mps,
+  preferred_targets, *, personalities, odor_field, dt)`, `assigned_targets()`, `forget(ids)`,
+  `move_target(index, new_xy)` — and `ConnectomeBrain` has to implement exactly that, the same as
+  `Baseline`/`ToyBrain`. Two things that shape doesn't obviously cover, resolved here so Step 2 is
+  built against a real contract instead of an assumption:
+  - **Clock ratio.** `Sim` only ever passes one `dt` (the world tick) into `desired_velocities`;
+    there's no second "brain clock" parameter anywhere, and the spiking simulator's own internal
+    step size will not be 1:1 with the world's. Mechanism: `ConnectomeBrain` owns a private
+    `self._brain_dt` (a constructor argument, tuned during Step 3's calibration gate — not decided
+    yet, deliberately) and internally runs `round(dt / self._brain_dt)` spiking sub-steps inside
+    one `desired_velocities` call before producing a single velocity output. `Sim`/`Population`
+    never need to know this is happening — the seam stays exactly as clean as it is today. The
+    cost is that one `desired_velocities` call's wall-clock time now depends on the clock ratio,
+    which is a performance question for Step 3/M1.5's benchmark, not Step 2's — Step 2 just has to
+    build the sub-stepping loop this way from the start rather than assuming one call is one step.
+  - **`last_sense` / `Recorder._SENSE_WIDTH`.** Today this is an informal convention, not a
+    documented interface: `ToyBrain` exposes `last_sense` as a small fixed-width array,
+    `Recorder._SENSE_WIDTH = 6` is a hardcoded constant matching it, and `Baseline` doesn't expose
+    `last_sense` at all. A real connectome brain's natural per-tick output is spike/activity state
+    across ~166k–211k neurons — recording that in full, every tick, for every fly, is both the
+    wrong design (Step 5's inspector layer 3 already handles "see the whole brain" by *recomputing*
+    on demand from a recorded seed + inputs, not by recording it live) and not what `last_sense` is
+    for. Decision: `last_sense` for `ConnectomeBrain` is a compact vector of exactly the values
+    that actually drove that tick's behavior — the sensory-injection input values plus the
+    motor-readout neurons' activity used to compute the steering command — not full per-neuron
+    state. Its width is real but brain-specific, so `Recorder._SENSE_WIDTH` (currently a hardcoded
+    module constant, `flybrainflow/recorder.py:38`) needs to become something the brain itself
+    reports (e.g. a `sense_width` property every brain implements, `Recorder` reads at construction
+    time) instead of a number someone has to remember to hand-edit when a new brain type shows up —
+    make this change as part of Step 2, not as a Step 5 surprise.
 - **Borrow code, not data.** Shiu et al.'s own published code
   (github.com/philshiu/Drosophila_brain_model, confirmed MIT-licensed) and the community
   embodied-fly project are both fair to read and reuse as *code* — their model structure, their

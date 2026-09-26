@@ -123,7 +123,7 @@ Each sense maps to real, named neurons in the dataset. The world computes the st
 | Smell of food | Or42b olfactory neurons (the food/vinegar attraction channel) | strength = odour concentration at the fly's position |
 | Taste of food | sweet-taste neurons (Gr64f / Gr5a) on feet and mouthparts | fires when the fly is in a slot; starts the feeding timer. Same neurons the published model validated |
 | Smell of a mate | Or47b olfactory neurons (male attraction to female pheromone) | stretch scope |
-| Sight of a mate | LC10 visual neurons | optional, decide later |
+| Sight of a mate | LC10 visual neurons (really 7 confirmed subtypes, not one — see `flybrainflow/data_config.py`'s `LC10_SUBTYPE_PREFIX`) | optional, decide later |
 | Other flies and walls, left and right | LC16 visual neurons | these are the "something's coming at me, back up / turn away" neurons **in walking flies** |
 | Wind direction and speed | Johnston's organ (the antennae) | feeds the circuit real flies use to track a smell upwind |
 | Bumping into things | leg touch neurons | minimal in v1; physics handles the hard part |
@@ -258,11 +258,11 @@ Note that all of these show up at **tens to hundreds** of agents. Thousands is f
 |---|---|---|
 | 1 | Repo name (working title: `fly-brain-flow`) | first commit |
 | 2 | Benchmark result | brain type, everything downstream |
-| 3 | Confirm in the pinned dataset: synapse count, optic lobes present, every neuron type listed above actually annotated | M1 |
+| 3 | ~~Confirm in the pinned dataset: synapse count, optic lobes present, every neuron type listed above actually annotated~~ — **resolved**: male-cns:v1.0 confirmed current, every required type present except a documented gap (Or42b/Gr64f/Gr5a/Or47b — see `flybrainflow/data_config.py`'s `KNOWN_GAPS`); see `docs/M1_PLAN.md`'s Step 1 status | — |
 | 4 | Dedicated "stop" neurons (v1 uses the forward-drive quirk) | M2 |
 | 5 | Which neurons stand in for "frustration" | inspector polish |
 | 6 | What happens when slots are full — watch first, add a rule only if needed | M2 |
-| 7 | Dataset version tag and hashes | first data pull |
+| 7 | ~~Dataset version tag and hashes~~ — **resolved**: `data/VERSION` has the pinned tag and real sha256 hashes for the 3 files pulled | — |
 | 8 | Hosting for the on-demand full-brain recompute | M3 |
 | 9 | Include the visual mate-tracking channel, or smell only | M2 |
 | 10 | Default clock ratio per mode | M1 |
@@ -282,8 +282,11 @@ Note that all of these show up at **tens to hundreds** of agents. Thousands is f
 | Brain runs away or goes dead at scale (wrong connection signs) | Medium | Medium | Guard rails from day one; periodic real-GPU checks |
 | Flies can't find the food | Medium | High | Wind + the real upwind circuit is the correct mechanism; tested with and without at M1 |
 | Sparse GPU maths runs far below spec | High | Medium | Expected; measured, not assumed; sharing one weight matrix is the main lever |
-| Dataset gets revised under me | Low | Medium | Version pinned |
+| Dataset gets revised under me | Low | Medium | Version pinned, hashed, and confirmed live against neuPrint (`data/VERSION`) |
 | Cloud bill creeps | Low | Medium | Caps before first use |
+| A named sensory neuron type from the plan's own tables (Or42b, Gr64f, Gr5a, Or47b) doesn't actually exist in male-cns:v1.0 by that name | Confirmed, not hypothetical | Medium | Documented gap, three live resolution options recorded in `flybrainflow/data_config.py`'s `KNOWN_GAPS`; decision deferred to M1 Step 4 (sensory model), not blocking Step 2 |
+| The pulled connectivity table (weighted synapse edges, tens of millions of rows) is too large or slow to reload/hold in GPU memory every session | Unmeasured | Medium | Actual file sizes not yet recorded anywhere in this repo; measure and record before Step 2's full-connectome (not just synthetic-toy) run, and confirm whether Kaggle's disk quota survives holding the file plus a loaded sparse tensor at once (it's already been hit once, at M1 Step 1) |
+| GPU spiking-sim runs aren't bit-for-bit reproducible run to run | Expected | Medium | M1_PLAN.md's Step 2 already names this in prose; matters because M3's inspector layer-3 recompute depends on it — needs an explicit mitigation (seeded RNG, tolerance-based comparison, or accepting non-reproducibility and designing the inspector around it) decided during Step 2, not discovered during M3 |
 | Car mode looks like a gimmick and cheapens the real result | Medium | Low | Present it honestly; lead with the braking mapping, which does hold up |
 | Mate target ends up just "second sugar target" | Medium | Low | First thing to cut |
 | Wall-aware odour (geodesic distance around barriers, needed for a stadium/station venue) is plain Dijkstra — correct, not fast; recomputing it every frame for a live-dragged target on a full-size map could be too slow | Medium | Medium | Only recomputed when a target's position actually changes, not every step; benchmark on the real venue size before relying on live-drag at scale, swap in a vectorized wavefront approximation if it's too slow |

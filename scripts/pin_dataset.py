@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""M1 Step 0 -- err, Step 1: pin the data. Run this once, on Kaggle (not locally, not in a
+"""M1 Step 1: pin the data. Run this once, on Kaggle (not locally, not in a
 Codespace, not anywhere it might get committed) -- see docs/M1_PLAN.md's own Step 1 for why: the
 pulled connectivity table and its hash file belong in a Kaggle dataset / object storage, never on
 the laptop, never in this git repo (same "cloud only" rule the plan already sets for the model
@@ -64,7 +64,10 @@ DEFAULT_FILES = (
 )
 
 
-def _get_neuprint_token() -> str | None:
+_DEFAULT_SECRET_NAME = "NEUPRINT_TOKEN"
+
+
+def _get_neuprint_token(secret_name: str) -> str | None:
     """NEUPRINT_TOKEN the normal way (Codespaces/local env var) first, falling back to Kaggle's
     own Secrets API -- Kaggle does NOT inject secrets into os.environ the way Codespaces does, they
     have to be fetched explicitly via kaggle_secrets.UserSecretsClient. Confirmed live 2026-09-26:
@@ -79,25 +82,20 @@ def _get_neuprint_token() -> str | None:
     except ImportError:
         return None
     try:
-        return UserSecretsClient().get_secret(_SECRET_NAME)
+        return UserSecretsClient().get_secret(secret_name)
     except Exception:
         return None
 
 
-_SECRET_NAME = "NEUPRINT_TOKEN"
-
-
 def main() -> None:
-    global _SECRET_NAME
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--out", required=True, help="directory to download the bulk connectivity table into")
     parser.add_argument("--skip-download", action="store_true", help="only run the neuPrint checks, skip the (large) bulk download")
     parser.add_argument("--files", nargs="+", default=list(DEFAULT_FILES), help="which bucket filenames to download (default: the 3 needed for Step 2, not the full ~31GB bucket)")
-    parser.add_argument("--secret-name", default="NEUPRINT_TOKEN", help="Kaggle secret name to look up if NEUPRINT_TOKEN isn't in the environment (case-sensitive, default NEUPRINT_TOKEN)")
+    parser.add_argument("--secret-name", default=_DEFAULT_SECRET_NAME, help=f"Kaggle secret name to look up if NEUPRINT_TOKEN isn't in the environment (case-sensitive, default {_DEFAULT_SECRET_NAME})")
     args = parser.parse_args()
-    _SECRET_NAME = args.secret_name
 
-    token = _get_neuprint_token()
+    token = _get_neuprint_token(args.secret_name)
     if not token:
         parser.error(
             "NEUPRINT_TOKEN is not set and no Kaggle secret was found -- either set the "
@@ -120,16 +118,21 @@ def main() -> None:
     if not tag_ok:
         print("STOP: the pinned tag in flybrainflow/data_config.py is stale -- update it to whatever")
         print("male-cns:* tag neuPrint actually lists above before doing anything else.")
+        sys.exit(1)
 
     # -- flywireType column ------------------------------------------------
     from neuprint import NeuronCriteria, fetch_neurons
 
-    sample_df, _ = fetch_neurons(NeuronCriteria(type="Or42b", client=client))
+    # Sample a type CONFIRMED PRESENT and well-annotated (DNa02) -- not Or42b, which
+    # data_config.py's own KNOWN_GAPS documents as absent from male-cns:v1.0. Sampling a type
+    # that's guaranteed to return 0 rows would make this check vacuous (0/0 always "passes")
+    # while silently contradicting the very KNOWN_GAPS constant this script imports.
+    sample_df, _ = fetch_neurons(NeuronCriteria(type="DNa02", client=client))
     has_flywire_type = "flywireType" in sample_df.columns
     print(f"[{'OK' if has_flywire_type else 'FAIL'}] 'flywireType' column {'present' if has_flywire_type else 'MISSING'} on the neuron annotation table")
     if has_flywire_type:
         non_null = sample_df["flywireType"].notna().sum()
-        print(f"    ({non_null}/{len(sample_df)} sampled Or42b neurons have a non-null flywireType)")
+        print(f"    ({non_null}/{len(sample_df)} sampled DNa02 neurons have a non-null flywireType)")
 
     # -- required neuron types ----------------------------------------------
     print("\nChecking REQUIRED_NEURON_TYPES coverage:")

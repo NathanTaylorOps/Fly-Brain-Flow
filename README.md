@@ -7,10 +7,11 @@
 ![Two streams of agents crossing a corridor in the M0 playback viewer](assets/demo.png)
 
 **Status:** M0 (plumbing) is done and independently reviewed twice — once for correctness, once for
-quality — with 139 tests green. That's the map loader, scenario config, wall-aware odour, wall-bending
+quality — with 159 tests green. That's the map loader, scenario config, wall-aware odour, wall-bending
 wind, the 2D collision solver, the spawn/feed/leave agent lifecycle, the baseline steering model, the
-toy brain, the sim loop, the recorder, and the playback viewer above. **There's still no real
-connectome — that's M1**, scoped in [docs/M1_PLAN.md](docs/M1_PLAN.md) and not yet started.
+toy brain, the sim loop, the recorder, and the playback viewer above. **M1 (the real connectome) is
+underway**, scoped in [docs/M1_PLAN.md](docs/M1_PLAN.md) — the MaleCNS dataset is pinned and
+verified against neuPrint; the spiking-graph scaffold that runs on it is next.
 
 ## What
 

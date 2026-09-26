@@ -98,6 +98,12 @@ class Sim:
         in `self.odor_field.sources[index]` and each brain's own `TargetAssignment`, never in a
         second copy that could drift out of sync with them.
         """
+        n_targets = len(self.odor_field.sources)
+        if not (0 <= index < n_targets):
+            raise IndexError(
+                f"move_target: index {index} out of range -- this scenario has {n_targets} "
+                f"target(s), so index must be 0..{n_targets - 1}"
+            )
         xy = (float(new_xy[0]), float(new_xy[1]))
         self.odor_field.sources[index].move_to(xy)
         for brain in self.brains.values():

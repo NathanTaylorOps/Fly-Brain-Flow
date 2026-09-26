@@ -20,3 +20,11 @@ Step 2's weighted-graph spiking scaffold actually needs. The full bucket is ~31G
 Kaggle's free disk; pass `--files` to pull more once a later step needs synapse-point-level detail.
 See `data/VERSION` for exactly which files were pulled and their hashes, and
 `flybrainflow/data_config.py`'s `KNOWN_GAPS` for the one confirmed annotation gap in male-cns:v1.0.
+
+Real pulled file sizes (measured 2026-09-26, on Kaggle's `/kaggle/working`):
+`body-annotations-male-cns-v1.0-minconf-0.5.feather` 14.5MB,
+`body-neurotransmitters-male-cns-v1.0.feather` 43.3MB,
+`connectome-weights-male-cns-v1.0-minconf-0.5-significant-only.feather` 502.2MB.
+None of that is large in isolation, but nothing has yet confirmed the two files actually key
+together cleanly (same body IDs, same confidence threshold) -- that's Step 2's own first sub-task,
+before any graph gets built on top of them (see `docs/M1_PLAN.md`'s Step 2).

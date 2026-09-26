@@ -121,6 +121,16 @@ Why: free GPU for the benchmark, calibration and recorded runs.
 - In the first cell type `!nvidia-smi` and run it (Shift+Enter).
 - Done when: you see a table with a GPU name in it. Then close the notebook — GPU time only counts while a session is running.
 
+**D2b. Add `NEUPRINT_TOKEN` as a Kaggle secret too — separately from the Codespaces one in C2.**
+Why: Kaggle does NOT read secrets into `os.environ` the way a Codespace does. Anything that needs
+neuPrint on Kaggle (`scripts/pin_dataset.py`, run per `docs/M1_PLAN.md`'s Step 1) fetches it
+explicitly via Kaggle's own Secrets API instead, and needs the secret attached there first.
+- In a notebook: **Add-ons** → **Secrets** → **Add a new secret**.
+- Name: `NEUPRINT_TOKEN` (same token value as C2 — copy it again, don't generate a second one).
+- Toggle it **on** ("Attach to notebook") for whichever notebook runs `pin_dataset.py`.
+- Done when: `from kaggle_secrets import UserSecretsClient; print(bool(UserSecretsClient().get_secret("NEUPRINT_TOKEN")))` prints `True` in a cell.
+- If you name the secret something other than `NEUPRINT_TOKEN`, pass `--secret-name <your name>` to `pin_dataset.py` — it won't find a differently-named secret on its own.
+
 **D3. Azure — don't sign up yet.**
 Why: the free account's starting credit runs on a 30-day clock from the day you sign up. The benchmark is weeks away. Sign up the week you need it, then check whether the trial subscription is allowed GPU quota before counting on it. If it isn't, Kaggle is the plan anyway.
 
@@ -159,8 +169,9 @@ Why: turns the milestone list into visible movement.
 - [ ] GitHub 2FA on, Codespaces spending limit $0
 - [ ] `fly-brain-flow` repo public, first commit visible, Issues on
 - [ ] Codespace opens and shows a Python version
-- [ ] `NEUPRINT_TOKEN` secret set; the C3 check prints a dataset list with `male-cns` in it
+- [ ] `NEUPRINT_TOKEN` secret set in Codespaces; the C3 check prints a dataset list with `male-cns` in it
 - [ ] Kaggle phone-verified; `!nvidia-smi` shows a GPU
+- [ ] `NEUPRINT_TOKEN` also added as a Kaggle secret (D2b); `UserSecretsClient().get_secret(...)` returns it
 - [ ] Nine M0 issues open
 - [ ] Journal has its first entry
 

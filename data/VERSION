@@ -24,9 +24,5 @@
 #
 # FlyWire     (calibration only; not shipped)                          (pending)
 #
-# KNOWN GAP (confirmed 2026-09-26, see flybrainflow/data_config.py's KNOWN_GAPS comment for the
-# full writeup): Or42b, Gr64f, Gr5a, Or47b do not exist in male-cns:v1.0 under `type`,
-# `flywireType`, or `receptorType` -- checked all three against the live 211,577-row annotation
-# table, zero matches on every one. The antennal nerve itself is present (entryNerve == "AN"), so
-# the fibers exist but were never given receptor-gene-level identity by MaleCNS's own annotation
-# pipeline. Resolution deferred to Step 4 (sensory model) -- not a Step 1 blocker.
+# KNOWN GAP: Or42b, Gr64f, Gr5a, Or47b confirmed absent from male-cns:v1.0's annotations --
+# see flybrainflow/data_config.py's KNOWN_GAPS comment for the full writeup, not repeated here.
