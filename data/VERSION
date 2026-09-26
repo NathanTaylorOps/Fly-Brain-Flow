@@ -1,5 +1,11 @@
 # Pinned dataset versions. Filled in at first data pull. Never "latest".
 #
 # dataset      version        source                                   sha256 of downloaded files
-# MaleCNS      male-cns:v1.0  https://male-cns.janelia.org/download/   (pending)
+# MaleCNS      male-cns:v1.0  https://male-cns.janelia.org/download/   (pending -- run scripts/pin_dataset.py on Kaggle)
 # FlyWire      (calibration only; not shipped)                          (pending)
+#
+# male-cns:v1.0 confirmed as the current tag by desk research against Janelia's own MaleCNS
+# project page on 2026-09-26 (v1.0 released 2026-06-08, publication 2026-09-03, no newer tag
+# announced). NOT yet confirmed directly against a live neuPrint query -- that, plus the actual
+# bulk pull and hashing, is scripts/pin_dataset.py's job; this line gets the real sha256 once that
+# script's been run for real, with a working NEUPRINT_TOKEN, which this sandbox doesn't have.
