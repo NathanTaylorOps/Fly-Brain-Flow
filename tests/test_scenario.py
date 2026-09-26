@@ -3,7 +3,7 @@
 import tempfile
 from pathlib import Path
 
-from flybrainflow.scenario import Scenario, ScenarioError
+from flybrainflow.scenario import Scenario, ScenarioError, TargetMove
 from flybrainflow.world import load_map_for_scenario
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -159,6 +159,84 @@ def test_non_numeric_values_are_rejected_cleanly_not_as_a_raw_traceback():
             assert key in str(e), (key, str(e))
             continue
         raise AssertionError(f"expected a ScenarioError mentioning {key}, not a raw exception")
+
+
+TARGET_MOVES = (
+    MINIMAL
+    + """
+[[targets]]
+position = [9, 1]
+[[target_moves]]
+at_s = 10.0
+target = 1
+to = [12, 3]
+[[target_moves]]
+at_s = 20.5
+target = 0
+to = [6, 2]
+"""
+)
+
+
+def test_target_moves_parse_into_tuple_of_target_move():
+    sc = Scenario.from_toml(_write(TARGET_MOVES))
+    assert sc.target_moves == (
+        TargetMove(at_s=10.0, target=1, to=(12.0, 3.0)),
+        TargetMove(at_s=20.5, target=0, to=(6.0, 2.0)),
+    )
+
+
+def test_target_moves_out_of_range_target_index_raises():
+    bad = TARGET_MOVES.replace("target = 1\nto = [12, 3]", "target = 5\nto = [12, 3]")
+    try:
+        Scenario.from_toml(_write(bad))
+    except ScenarioError as e:
+        assert "target" in str(e) and "out of range" in str(e)
+        return
+    raise AssertionError("expected a ScenarioError for an out-of-range target_moves target index")
+
+
+def test_target_moves_negative_target_index_raises():
+    bad = TARGET_MOVES.replace("target = 1\nto = [12, 3]", "target = -1\nto = [12, 3]")
+    try:
+        Scenario.from_toml(_write(bad))
+    except ScenarioError as e:
+        assert "target" in str(e) and "out of range" in str(e)
+        return
+    raise AssertionError("expected a ScenarioError for a negative target_moves target index")
+
+
+def test_target_moves_negative_at_s_raises():
+    bad = TARGET_MOVES.replace("at_s = 10.0", "at_s = -1.0")
+    try:
+        Scenario.from_toml(_write(bad))
+    except ScenarioError as e:
+        assert "at_s" in str(e)
+        return
+    raise AssertionError("expected a ScenarioError for a negative target_moves at_s")
+
+
+def test_target_moves_malformed_to_raises():
+    wrong_length = TARGET_MOVES.replace("to = [12, 3]", "to = [12, 3, 4]")
+    try:
+        Scenario.from_toml(_write(wrong_length))
+    except ScenarioError as e:
+        assert "to" in str(e)
+    else:
+        raise AssertionError("expected a ScenarioError for a wrong-length target_moves 'to'")
+
+    non_numeric = TARGET_MOVES.replace("to = [12, 3]", 'to = ["a", "b"]')
+    try:
+        Scenario.from_toml(_write(non_numeric))
+    except ScenarioError as e:
+        assert "to" in str(e)
+        return
+    raise AssertionError("expected a ScenarioError for a non-numeric target_moves 'to'")
+
+
+def test_no_target_moves_section_defaults_to_empty_tuple():
+    sc = Scenario.from_toml(_write(MINIMAL))
+    assert sc.target_moves == ()
 
 
 def test_closed_mode_needs_no_sources_or_targets():

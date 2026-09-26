@@ -183,6 +183,59 @@ def test_freed_slot_can_be_reused():
     assert pop.slots_used == [1]
 
 
+def test_feed_uses_live_target_positions_when_given_not_the_frozen_config_position():
+    # `Scenario`/`TargetConfig` are frozen -- `sc.targets[0].position` can never change once the
+    # scenario loads -- but a target moving mid-run (wired by `Sim.tick`, outside this module) has
+    # to be captured at *where it actually is now*. An agent parked on the target's old config
+    # position must NOT be captured once `target_positions` says the target moved elsewhere.
+    sc = _scenario(
+        rate_per_s=100.0,
+        population_cap=1,
+        targets=[{"position": [5.0, 1.0], "slots": 1, "feeding_time_s": 2.0}],
+    )
+    pop = Population.from_scenario(sc, rng=np.random.default_rng(0))
+    ids = pop.spawn(dt=1.0)
+    pop.set_positions(ids, np.array([[5.0, 1.0]]))  # sitting right on the config position
+    started = pop.feed(dt=0.0, capture_radius=0.5, target_positions=[[50.0, 50.0]])
+    assert started == []
+    assert pop.agents[ids[0]].status == "walking"
+
+
+def test_feed_captures_at_the_live_target_position_when_given():
+    # The flip side of the above: an agent near where `target_positions` says the target *now* is
+    # (far from the frozen config position) must get captured -- confirming the override actually
+    # takes effect, not just that it doesn't break the old case.
+    sc = _scenario(
+        rate_per_s=100.0,
+        population_cap=1,
+        targets=[{"position": [5.0, 1.0], "slots": 1, "feeding_time_s": 2.0}],
+    )
+    pop = Population.from_scenario(sc, rng=np.random.default_rng(0))
+    ids = pop.spawn(dt=1.0)
+    pop.set_positions(ids, np.array([[50.0, 50.0]]))  # nowhere near the config position
+    started = pop.feed(dt=0.0, capture_radius=0.5, target_positions=[[50.0, 50.0]])
+    assert started == [ids[0]]
+    assert pop.agents[ids[0]].status == "feeding"
+    assert pop.slots_used == [1]
+
+
+def test_feed_without_target_positions_is_unchanged_from_config_position_behaviour():
+    # Regression: omitting `target_positions` (every caller before this change) must behave
+    # byte-for-byte as before -- capture decided purely by `sc.targets[ti].position`. Same shape
+    # as `test_feed_occupies_a_slot_and_blocks_once_full`, just spelling out the default explicitly.
+    sc = _scenario(
+        rate_per_s=100.0,
+        population_cap=1,
+        targets=[{"position": [5.0, 1.0], "slots": 1, "feeding_time_s": 2.0}],
+    )
+    pop = Population.from_scenario(sc, rng=np.random.default_rng(0))
+    ids = pop.spawn(dt=1.0)
+    pop.set_positions(ids, np.array([[5.0, 1.0]]))
+    started = pop.feed(dt=0.0, capture_radius=0.5)
+    assert started == [ids[0]]
+    assert pop.agents[ids[0]].status == "feeding"
+
+
 def test_a_lone_population_defaults_to_the_brain_tag_and_owns_its_own_state():
     sc = _scenario(rate_per_s=100.0, population_cap=1)
     pop = Population.from_scenario(sc, rng=np.random.default_rng(0))

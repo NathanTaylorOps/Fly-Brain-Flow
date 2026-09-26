@@ -144,6 +144,12 @@ class ToyBrain:
         # calling `desired_velocities`, before the next tick overwrites it.
         self.last_sense: dict[int, np.ndarray] = {}
 
+    def assigned_targets(self) -> dict[int, int]:
+        """The live id -> committed-target-index mapping -- same contract as
+        `Baseline.assigned_targets`, so `Sim.tick` can ask either brain the same way rather than
+        reaching into `self._targets` directly."""
+        return self._targets.assigned
+
     def forget(self, ids) -> None:
         """Release every piece of per-agent state for ids that are gone for good -- same idea,
         same reason, as `Baseline.forget`: without this, all four dicts below (plus the target
@@ -157,16 +163,40 @@ class ToyBrain:
             self.last_sense.pop(i, None)
         self._targets.forget(ids)
 
+    def move_target(self, index: int, new_xy) -> None:
+        """Relocate target `index` to `new_xy` -- see `TargetAssignment.move_target` for the full
+        rationale (already-assigned flies stay committed to `index` and just get a correct field
+        for its new position; nothing needs reassigning). Unlike `Baseline`, `ToyBrain` has no
+        `self.target_positions` alias into `self._targets` -- callers that need the live positions
+        read `self._targets.target_positions` (or `self.targets[i].position`, which this call does
+        *not* update: `self.targets` is the original `scenario.targets`-like objects used for
+        `.kind` lookups in `_sense`, not a position source)."""
+        self._targets.move_target(index, new_xy)
+
     def desired_velocities(
-        self, ids, positions, radii, max_speed_mps, personalities, odor_field, dt: float, preferred_targets: dict | None = None
+        self,
+        ids,
+        positions,
+        radii,
+        max_speed_mps,
+        preferred_targets: dict | None = None,
+        *,
+        personalities,
+        odor_field,
+        dt: float,
     ) -> np.ndarray:
-        """One steering vector per id in `ids`, in the same order -- same contract as
-        `Baseline.desired_velocities`, plus `personalities` (this fly's row into
+        """One steering vector per id in `ids`, in the same order -- same call shape as
+        `Baseline.desired_velocities` (positional `ids, positions, radii, max_speed_mps,
+        preferred_targets`, then keyword-only `personalities, odor_field, dt`), so `Sim._steer`
+        calls both brains identically. `Baseline` accepts the three keyword-only arguments and
+        ignores them; `ToyBrain` actually needs all three: `personalities` (this fly's row into
         `self.personality_table`, e.g. `Agent.personality`), `odor_field` (a `world.fields.OdorField`
         built for the same map, so sensing is wall-aware/wind-bent exactly like a real fly's would
-        be), `dt` (the leaky activity update needs real elapsed time, unlike `Baseline`'s stateless
-        formula), and `preferred_targets` (id -> target index, overriding nearest-distance
-        assignment for an id's first assignment only -- see `TargetAssignment.assign`)."""
+        be), and `dt` (the leaky activity update needs real elapsed time, unlike `Baseline`'s
+        stateless formula) -- kept required (no default) here since a toy or real connectome brain
+        genuinely cannot function without them. `preferred_targets` (id -> target index) overrides
+        nearest-distance assignment for an id's first assignment only -- see
+        `TargetAssignment.assign`."""
         positions = np.asarray(positions, float).reshape(-1, 2)
         n = len(ids)
         if n == 0:
@@ -261,8 +291,7 @@ class ToyBrain:
         if new_heading_rows:
             # Face toward the assigned target at birth rather than an arbitrary direction -- a
             # fly that spawns facing a wall behind it has nothing useful to steer by yet.
-            rows = np.array(new_heading_rows)
-            for k, ti in zip(rows, target_idx[rows]):
+            for k, ti in zip(new_heading_rows, target_idx[new_heading_rows]):
                 field = self._targets.field_for(int(ti))
                 direction = -gradient_direction(self.map, field, positions[k : k + 1])[0]
                 heading = 0.0 if np.allclose(direction, 0.0) else float(np.arctan2(direction[1], direction[0]))
@@ -281,14 +310,15 @@ class ToyBrain:
         for ti in np.unique(target_idx):
             rows = target_idx == ti
             p = positions[rows]
-            # Real bug, fixed: sampling by `kind` alone sums *every* target of that kind into one
-            # combined plume, so a fly committed to a far sugar target still felt (and got pulled
-            # off course by) a near sugar target's smell just because they're the same kind -- see
-            # `OdorField.gradient`'s docstring for the full story and how this fly's own
-            # `scenarios/corridor_bidirectional.toml` demo hit it. `odor_field.sources` is built
-            # 1:1, in order, from the same `scenario.targets` this brain's own `self.targets` came
-            # from (see `world.fields.from_scenario` and `Sim.__init__`), so index `ti` picks out
-            # exactly the one plume this fly has actually committed to.
+            # Sampling by `kind` alone would sum *every* target of that kind into one combined
+            # plume -- fine for "how strong does sugar smell overall", wrong for "which way should
+            # I walk" once two same-kind targets exist, since a fly committed to a far target would
+            # still feel (and get pulled off course by) a near target's smell just because they're
+            # the same kind. See `OdorField.gradient`'s docstring for the full mechanism.
+            # `odor_field.sources` is built 1:1, in order, from the same `scenario.targets` this
+            # brain's own `self.targets` came from (see `world.fields.from_scenario` and
+            # `Sim.__init__`), so index `ti` picks out exactly the one plume this fly has committed
+            # to.
             source = odor_field.sources[int(ti)] if int(ti) < len(odor_field.sources) else None
             kind = self.targets[int(ti)].kind
             conc = odor_field.sample(p, kind=kind, source=source)

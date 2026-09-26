@@ -1,8 +1,8 @@
 """viewer_export.py tests -- the Python-side half of the M0 viewer. What actually renders it
 (`viewer/index.html`, a plain canvas playback) isn't something pytest can check; that's been
-verified by hand with a headless browser (see docs/JOURNAL.md) rather than left unchecked. What's
-tested here is the one real piece of logic this module has: reshaping a flat, columnar recording
-into the per-tick, per-agent frames the viewer actually consumes, plus the JSON stays valid.
+verified by hand with a headless browser rather than left unchecked. What's tested here is the
+one real piece of logic this module has: reshaping a flat, columnar recording into the per-tick,
+per-agent frames the viewer actually consumes, plus the JSON stays valid.
 """
 
 import json
@@ -81,6 +81,53 @@ def test_walls_and_targets_come_from_the_map_and_scenario_not_the_recording():
     assert len(payload["walls"]["holes"]) == len(sim.map.holes) == 2  # the bottleneck's two jaws
     assert payload["targets"] == [{"kind": t.kind, "position": [float(t.position[0]), float(t.position[1])]} for t in sc.targets]
     assert payload["bounds"] == list(sim.map.bounds)
+
+
+def test_target_moves_are_included_sorted_by_time_with_correct_shape(tmp_path):
+    recording, sim, sc = _recorded_run()
+    path = tmp_path / "run.json"
+    out_of_order_moves = [
+        (2.5, 0, (5.0, 6.0)),
+        (0.5, 0, (1.0, 2.0)),
+        (1.5, 1, (3.0, 4.0)),
+    ]
+    data = export_for_viewer(recording, sim.map, sc, path, target_moves=out_of_order_moves)
+
+    assert data["target_moves"] == [
+        {"t": 0.5, "index": 0, "position": [1.0, 2.0]},
+        {"t": 1.5, "index": 1, "position": [3.0, 4.0]},
+        {"t": 2.5, "index": 0, "position": [5.0, 6.0]},
+    ]
+    reloaded = json.loads(path.read_text())
+    assert reloaded == data
+
+
+def test_target_moves_defaults_to_empty_list_not_missing_or_null(tmp_path):
+    recording, sim, sc = _recorded_run()
+    path = tmp_path / "run.json"
+
+    data_omitted = export_for_viewer(recording, sim.map, sc, path)
+    assert data_omitted["target_moves"] == []
+
+    from flybrainflow.viewer_export import _build_payload
+
+    payload_none = _build_payload(recording, sim.map, sc, target_moves=None)
+    assert payload_none["target_moves"] == []
+    assert "target_moves" in json.loads(path.read_text())
+
+
+def test_targets_key_unaffected_by_target_moves():
+    recording, sim, sc = _recorded_run()
+    from flybrainflow.viewer_export import _build_payload
+
+    expected_targets = [{"kind": t.kind, "position": [float(t.position[0]), float(t.position[1])]} for t in sc.targets]
+
+    payload_no_moves = _build_payload(recording, sim.map, sc)
+    payload_with_moves = _build_payload(
+        recording, sim.map, sc, target_moves=[(0.1, 0, (99.0, 99.0))]
+    )
+    assert payload_no_moves["targets"] == expected_targets
+    assert payload_with_moves["targets"] == expected_targets
 
 
 def test_an_empty_recording_produces_no_frames_but_still_valid_geometry(tmp_path):

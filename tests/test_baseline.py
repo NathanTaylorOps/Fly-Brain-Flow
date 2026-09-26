@@ -122,11 +122,24 @@ def test_full_loop_a_spawned_fly_reaches_feeds_and_leaves():
     assert brain._assigned == {}  # forget() actually released it, not just left it stale
 
 
+def test_move_target_steers_an_already_assigned_agent_toward_the_new_position():
+    m = corridor(length=40, width=5)
+    brain = Baseline(m, target_positions=[[38.0, 2.5]])
+    pos = np.array([[20.0, 2.5]])
+    vel_before = brain.desired_velocities(ids=[0], positions=pos, radii=0.25, max_speed_mps=1.3)
+    assert vel_before[0, 0] > 0.99 * np.linalg.norm(vel_before[0])  # heading toward +x, as expected
+
+    brain.move_target(0, [2.0, 2.5])  # relocate the same (already-assigned) target behind the agent
+    vel_after = brain.desired_velocities(ids=[0], positions=pos, radii=0.25, max_speed_mps=1.3)
+    assert brain._assigned[0] == 0  # still committed to target index 0
+    assert vel_after[0, 0] < -0.99 * np.linalg.norm(vel_after[0])  # now heading toward -x instead
+
+
 def test_forget_prevents_the_assigned_target_dict_from_growing_forever():
     # Real bug, fixed: `_assigned` kept every id ever spawned, forever, even once an agent had
     # long since fed and left. Over a realistic run length this grows without bound -- caught by
-    # simulating a full open-boundary run (see docs/JOURNAL.md) where 300s produced 300+ flies
-    # with only a handful ever alive at once, and the dict held onto all of them.
+    # simulating a full open-boundary run where 300s produced 300+ flies with only a handful ever
+    # alive at once, and the dict held onto all of them.
     raw = {
         "scenario": {"name": "t", "boundary_mode": "open"},
         "map": {"source": "gen:corridor?length=15&width=5"},

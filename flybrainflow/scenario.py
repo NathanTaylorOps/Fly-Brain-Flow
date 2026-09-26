@@ -88,6 +88,13 @@ class TargetConfig:
 
 
 @dataclass(frozen=True)
+class TargetMove:
+    at_s: float
+    target: int
+    to: tuple[float, float]
+
+
+@dataclass(frozen=True)
 class AgentsConfig:
     personality_mix: str = "uniform20"
     sensing_radius_m: float = 3.0
@@ -110,6 +117,7 @@ class Scenario:
     targets: tuple[TargetConfig, ...]
     agents: AgentsConfig
     baseline: BaselineConfig
+    target_moves: tuple[TargetMove, ...] = ()
     path: Path | None = None
 
     # -- construction -------------------------------------------------------
@@ -131,11 +139,20 @@ class Scenario:
         spawn = _parse_spawn(_section(raw, "spawn"), meta.boundary_mode, n_targets=len(targets))
         agents = _parse_agents(raw.get("agents", {}))
         baseline = BaselineConfig(enabled=bool(raw.get("baseline", {}).get("enabled", True)))
-        return cls(meta, map_cfg, wind, spawn, targets, agents, baseline)
+        target_moves = _parse_target_moves(raw.get("target_moves", []), len(targets))
+        return cls(meta, map_cfg, wind, spawn, targets, agents, baseline, target_moves)
 
     def with_path(self, path: Path) -> "Scenario":
         return Scenario(
-            self.meta, self.map, self.wind, self.spawn, self.targets, self.agents, self.baseline, path
+            self.meta,
+            self.map,
+            self.wind,
+            self.spawn,
+            self.targets,
+            self.agents,
+            self.baseline,
+            self.target_moves,
+            path,
         )
 
     # -- convenience --------------------------------------------------------
@@ -177,13 +194,11 @@ def _float(value: Any, where: str, key: str) -> float:
 
 def _int(value: Any, where: str, key: str, min_value: int | None = None) -> int:
     """Like `_positive` but for whole numbers -- also rejects a non-integer float instead of
-    silently truncating it. Real bug, fixed: `target = 1.9` used to sail through as `int(1.9)` ==
-    `1` with no error at all, so a typo'd/miscounted target index would silently pick a different
-    (but still valid) target and produce a wrong-but-plausible run rather than a rejected file --
-    exactly the kind of mistake this file's own "validation is deliberately strict" promise exists
-    to catch. A non-numeric value (`target = "one"`) used to reach a bare `int(...)` call and raise
-    an unguarded `ValueError` with no `[where] 'key'` context, instead of this module's usual
-    `ScenarioError`."""
+    silently truncating it, so a typo'd/miscounted index like `target = 1.9` can't silently become
+    `1` and pick a different-but-valid target, producing a wrong-but-plausible run instead of a
+    rejected file. Routes through `_float` first so a non-numeric value raises the same
+    `ScenarioError` with `[where] 'key'` context as every other validated field, rather than a bare
+    `ValueError` from an unguarded `int(...)` call."""
     f = _float(value, where, key)
     if f != int(f):
         raise ScenarioError(f"[{where}] '{key}' must be a whole number, got {value!r}")
@@ -298,6 +313,19 @@ def _parse_targets(items: list[dict[str, Any]], boundary_mode: str) -> tuple[Tar
                 odor_range_m=_positive(t.get("odor_range_m", 30.0), where, "odor_range_m"),
             )
         )
+    return tuple(out)
+
+
+def _parse_target_moves(items: list[dict[str, Any]], n_targets: int) -> tuple[TargetMove, ...]:
+    out = []
+    for i, m in enumerate(items):
+        where = f"target_moves[{i}]"
+        at_s = _positive(_need(m, "at_s", where), where, "at_s", strict=False)
+        target = _int(_need(m, "target", where), where, "target")
+        if not (0 <= target < n_targets):
+            raise ScenarioError(f"[{where}] 'target' index {target} is out of range for {n_targets} target(s)")
+        to = _xy(_need(m, "to", where), where, "to")
+        out.append(TargetMove(at_s=at_s, target=target, to=to))
     return tuple(out)
 
 

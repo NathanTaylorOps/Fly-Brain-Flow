@@ -151,7 +151,7 @@ def test_source_targets_makes_two_streams_actually_cross_the_corridor():
     # assigned target 0 (at x=39, per this scenario's source_targets) and get moving in the +x
     # direction, and vice versa for flies born at x=39 -- and, over a real run, a growing number of
     # agents should be genuinely present in the middle of the corridor (which never happened
-    # before this fix; see docs/JOURNAL.md).
+    # before this fix).
     sc = Scenario.from_dict(
         {
             "scenario": {"name": "t", "boundary_mode": "open", "seed": 5},
@@ -221,6 +221,95 @@ def test_arrivals_minus_departures_equals_current_population():
         departures += len(departed)
         assert arrivals - departures == len(pop.agents)
     assert arrivals > 10 and departures > 10  # the run actually churned through real flies
+
+
+def test_move_target_reroutes_a_walking_fly_and_moves_capture_with_it():
+    # The actual M1 Step 0 claim, exercised at the level that matters: a fly already committed to
+    # a target, mid-walk, re-routes when that target moves -- and capture only fires at the new
+    # spot, not the frozen scenario config's original one. Long, narrow corridor so "closer to the
+    # old end" vs "closer to the new end" is unambiguous from x-position alone.
+    sc = _scenario(
+        population_cap=1,
+        rate_per_s=999.0,  # spawn immediately, no need to wait out the accumulator
+        map="gen:corridor?length=30&width=5",
+        sources=[[1.0, 2.5]],
+        targets=[{"kind": "sugar", "position": [29.0, 2.5], "slots": 4, "feeding_time_s": 1.0}],
+        baseline={"enabled": False},
+    )
+    sim = Sim.from_scenario(sc, rng=np.random.default_rng(0))
+    sim.tick(0.1)  # spawn the one fly
+    fly_id = sim.cohorts["brain"].walking_ids()[0]
+    pop = sim.cohorts["brain"]
+    for _ in range(20):  # a real, physics-moved head start -- not sitting right on the spawn point
+        sim.tick(0.1)
+    pos = pop.positions([fly_id])
+
+    # Drive `_steer` directly at this fixed, already-advanced position (not a further multi-second
+    # tick loop, which would race against the fly actually reaching and being captured by whichever
+    # target it's currently heading for -- this isolates "does it re-route", not "does it eventually
+    # arrive"). ToyBrain's turn rate is bounded (see toy.py's `_TURN_MAX`), so heading takes several
+    # calls' worth of dt to settle, same as it would over several real ticks.
+    for _ in range(30):
+        vel = sim._steer("brain", [fly_id], pos, dt=0.1)
+    assert vel[0, 0] > 0, "fly wasn't heading toward the original (far, +x) target"
+
+    # Move the target well behind the fly's current position instead.
+    sim.move_target(0, (0.2, 2.5))
+    assert sim.target_moves == [(sim.t, 0, (0.2, 2.5))]
+
+    for _ in range(30):
+        vel = sim._steer("brain", [fly_id], pos, dt=0.1)
+    assert vel[0, 0] < 0, "fly didn't re-route toward the moved target"
+
+    # Capture: sitting exactly on the OLD position must not trigger a feed; sitting on the NEW one
+    # must. Drive Population.feed() directly (bypassing steering) so this isolates capture, not
+    # movement -- same technique test_agents.py already uses for feed()'s own live-position tests.
+    pop.agents[fly_id].position = np.array([29.0, 2.5])  # the scenario's original, frozen position
+    live_positions = [s.position for s in sim.odor_field.sources]
+    started = pop.feed(0.1, assigned_targets=sim.brains["brain"].assigned_targets(), target_positions=live_positions)
+    assert fly_id not in started, "captured at the target's old, stale position"
+
+    pop.agents[fly_id].position = np.array([0.2, 2.5])  # where the target actually is now
+    started = pop.feed(0.1, assigned_targets=sim.brains["brain"].assigned_targets(), target_positions=live_positions)
+    assert fly_id in started, "not captured at the target's new, live position"
+
+
+def test_target_moves_schedule_fires_from_scenario_toml_and_reaches_the_recording():
+    # The declarative half of Step 0: a `[[target_moves]]` scenario schedule fires on its own,
+    # with no test code calling `move_target` directly, and the fired move ends up in `sim.target_moves`
+    # (what `viewer_export.export_for_viewer`'s own `target_moves` parameter consumes) with the
+    # right time, index and position.
+    sc = Scenario.from_dict(
+        {
+            "scenario": {"name": "t", "boundary_mode": "open", "seed": 0},
+            "map": {"source": "gen:corridor?length=15&width=5"},
+            "spawn": {"sources": [[1.0, 2.5]], "rate_per_s": 2.0, "population_cap": 1},
+            "targets": [{"kind": "sugar", "position": [13.0, 2.5], "slots": 4, "feeding_time_s": 1.0}],
+            "baseline": {"enabled": False},
+            "target_moves": [{"at_s": 2.0, "target": 0, "to": [7.0, 2.5]}],
+        }
+    )
+    sim = Sim.from_scenario(sc, rng=np.random.default_rng(0))
+    for _ in range(15):  # 1.5s -- before the scheduled move
+        sim.tick(0.1)
+    assert sim.target_moves == []
+    assert sim.odor_field.sources[0].position == (13.0, 2.5)
+
+    for _ in range(10):  # crosses t=2.0
+        sim.tick(0.1)
+    assert len(sim.target_moves) == 1
+    fired_t, fired_index, fired_xy = sim.target_moves[0]
+    # `self.t` accumulates via repeated `+= dt`, so it lands at 2.0 only up to float error (e.g.
+    # 2.0000000000000004, not exactly 2.0) -- same accumulation every other `sim.t` check in this
+    # file already tolerates by construction (single-tick assertions never accumulate error);
+    # `at_s` is compared with a small tolerance for the same reason.
+    assert abs(fired_t - 2.0) < 1e-9
+    assert (fired_index, fired_xy) == (0, (7.0, 2.5))
+    assert sim.odor_field.sources[0].position == (7.0, 2.5)
+    # Both brains -- not just the one that happens to be active -- must have picked it up, since
+    # `move_target` loops every brain generically; check the field actually moved for the sole
+    # ("brain") cohort's own TargetAssignment.
+    assert tuple(sim.brains["brain"]._targets.target_positions[0]) == (7.0, 2.5)
 
 
 def test_a_dense_bottleneck_keeps_agents_from_both_cohorts_reasonably_separated():

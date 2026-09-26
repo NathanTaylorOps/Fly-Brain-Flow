@@ -2,8 +2,8 @@
 
 Mirrors `test_baseline.py`'s shape where the contract is the same (per-id steering vectors,
 `forget()` releasing state), plus tests specific to the two real bugs this brain went through
-during development -- see `flybrainflow/brains/toy.py`'s module docstring and docs/JOURNAL.md
-for the honest account of both:
+during development -- see `flybrainflow/brains/toy.py`'s own module docstring for the honest
+account of both:
 
   1. Turn-rate instability: heading is an integrator (this tick's turn compounds onto every
      previous tick's), unlike `Baseline`'s stateless-per-tick steering. A few agents pressed
@@ -162,6 +162,37 @@ def test_hidden_activity_never_exceeds_its_guard_rail_under_an_adversarial_drive
         # jitter the position slightly each tick rather than letting the fly walk away and defuse
         # its own adversarial input -- keeps the drive strong for the whole run
         pos = np.array([[2.0 + 0.01 * np.sin(_), 2.5]])
+
+
+def test_move_target_steers_an_already_assigned_fly_toward_the_new_position():
+    # `ToyBrain.move_target` only updates the shared `TargetAssignment` bookkeeping (commitment,
+    # cached field) -- actual sensing/steering here follows `odor_field`, a separate object the
+    # caller passes each tick, not `self._targets.target_positions` directly. So relocating a
+    # target for real also means relocating its odor source to match, same as the integration step
+    # will do; this test does both, to confirm the wiring end to end.
+    m = corridor(length=40, width=5)
+    old_pos = [38.0, 2.5]
+    new_pos = [2.0, 2.5]
+    target = Target(old_pos)
+    brain = ToyBrain(m, [target], scenario_seed=0)
+    pos = np.array([[20.0, 2.5]])
+
+    odor_old = _odor(m, target)
+    vel = None
+    for _ in range(30):
+        vel = brain.desired_velocities([0], pos, radii=0.25, max_speed_mps=1.3, personalities=[0], odor_field=odor_old, dt=0.05)
+        pos, _ = physics_step(pos, vel, radii=0.25, dt=0.05, walkable_map=m, max_speed_mps=1.3)
+    assert vel[0, 0] > 0  # heading toward +x, toward the original (far) target
+
+    brain.move_target(0, new_pos)
+    assert brain._targets.assigned[0] == 0  # still committed to the same target index
+
+    target.position = tuple(new_pos)  # the caller relocates the matching odor source in real use
+    odor_new = _odor(m, target)
+    for _ in range(30):
+        vel = brain.desired_velocities([0], pos, radii=0.25, max_speed_mps=1.3, personalities=[0], odor_field=odor_new, dt=0.05)
+        pos, _ = physics_step(pos, vel, radii=0.25, dt=0.05, walkable_map=m, max_speed_mps=1.3)
+    assert vel[0, 0] < 0  # now heading toward -x, toward the relocated target
 
 
 def test_forget_releases_all_three_per_agent_dicts():

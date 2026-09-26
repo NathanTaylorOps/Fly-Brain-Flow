@@ -224,6 +224,7 @@ class Population:
         dt: float,
         capture_radius: float = DEFAULT_CAPTURE_RADIUS_M,
         assigned_targets: dict[int, int] | None = None,
+        target_positions=None,
     ) -> list[int]:
         """Start feeding for any walking agent within `capture_radius` of a target that still has
         a free slot, then advance every currently-feeding agent's timer by `dt`. Returns the ids
@@ -241,7 +242,21 @@ class Population:
         its own, because this method used to grab any walking agent near *any* target regardless of
         which one it was actually headed for, so a fly born next to the wrong target got scooped up
         before it ever took a step. Without `assigned_targets` (e.g. tests that drive `Population`
-        directly with no brain in the loop) the old any-target-in-range behaviour is unchanged."""
+        directly with no brain in the loop) the old any-target-in-range behaviour is unchanged.
+
+        `target_positions` (sequence indexable by target index, e.g. a list or `(n_targets, 2)`
+        array of `(x, y)` pairs) overrides where each target *currently* is for the capture-radius
+        check only. `Scenario`/`TargetConfig` are frozen dataclasses -- `sc.targets[ti].position`
+        can never change once the scenario loads -- but a target moving mid-run is a real feature
+        landing alongside this one, and the capture check has to compare against where the target
+        actually is *now*, not the stale spot it started at: otherwise a fly could get captured at
+        a target's old location after it moved away, or never get captured at the new one. Nothing
+        else about a target (`kind`, `feeding_time_s`, its slot count via `self._slots`) is live --
+        those stay config, read from `sc.targets[ti]` as always -- only the position used in the
+        distance comparison is swapped. Leaving `target_positions` as `None` (the default -- every
+        existing call site, every existing test, anything driving `Population` directly with no
+        `Sim`/brain/moving-target concept in the loop) keeps today's exact behaviour: the position
+        comes from `sc.targets[ti].position`, unchanged."""
         sc = self.scenario
         started: list[int] = []
         for a in self.agents.values():
@@ -250,7 +265,8 @@ class Population:
             own_target = assigned_targets.get(a.id) if assigned_targets is not None else None
             candidates = [(own_target, sc.targets[own_target])] if own_target is not None else list(enumerate(sc.targets))
             for ti, t in candidates:
-                if np.linalg.norm(a.position - np.array(t.position, float)) <= capture_radius:
+                t_position = target_positions[ti] if target_positions is not None else t.position
+                if np.linalg.norm(a.position - np.array(t_position, float)) <= capture_radius:
                     if self._slots.try_occupy(ti):
                         a.status = "feeding"
                         a.target_index = ti

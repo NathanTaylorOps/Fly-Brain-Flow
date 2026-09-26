@@ -21,12 +21,9 @@ around a barrier instead of stalling at it.
     vel = brain.desired_velocities(ids, positions, radii, max_speed_mps=1.3)
     brain.forget(pop.leave())   # call this with whatever `Population.leave()` returns each tick
 
-Each agent commits to the nearest target (straight-line, "which one looks closest from here") the
-first time it's seen, and sticks with that choice -- it does not re-route away from a target that
-turns out to be busy. That's deliberate: re-routing around congestion would suppress the very
-queuing/choke-point behaviour this project exists to measure. An agent that commits to a full
-target simply queues near it, held back by the pedestrian-repulsion term and, as a last resort,
-`physics.step()`'s own overlap correction, until a slot opens.
+Target commitment (nearest-first, sticks once decided, deliberately doesn't re-route around a busy
+target) is shared logic, not reimplemented here -- see `TargetAssignment` in `brains/targeting.py`
+for the full rationale.
 """
 
 from __future__ import annotations
@@ -57,13 +54,31 @@ class Baseline:
         self._assigned = self._targets.assigned
         self._fields = self._targets.fields
 
-    def desired_velocities(self, ids, positions, radii, max_speed_mps, preferred_targets: dict | None = None) -> np.ndarray:
+    def desired_velocities(
+        self,
+        ids,
+        positions,
+        radii,
+        max_speed_mps,
+        preferred_targets: dict | None = None,
+        *,
+        personalities=None,
+        odor_field=None,
+        dt: float | None = None,
+    ) -> np.ndarray:
         """One steering vector per id in `ids`, in the same order. `positions`/`radii` line up
         with `ids` the same way `world.physics.step()` expects them.
 
         `preferred_targets` (id -> target index) overrides nearest-distance assignment for an id's
         *first* assignment only -- see `TargetAssignment.assign`'s own docstring for why nearest
-        alone isn't always enough. Omit it (the default) for ordinary nearest-target behaviour."""
+        alone isn't always enough. Omit it (the default) for ordinary nearest-target behaviour.
+
+        `personalities`/`odor_field`/`dt` are accepted and ignored -- `Baseline` has no smell and
+        no persistent internal state, so none of the three apply to it. They exist here only so
+        `Baseline` and `ToyBrain` (and whatever the real connectome-driven brain ends up being)
+        share one call signature: `Sim._steer` calls every brain the same way, by keyword, rather
+        than checking which brain type it's holding and calling it differently -- a dispatch that
+        would only grow branches as more brain types are added, not shrink."""
         positions = np.asarray(positions, float).reshape(-1, 2)
         n = len(ids)
         if n == 0:
@@ -83,6 +98,12 @@ class Baseline:
         scale[too_fast] = max_speed[too_fast] / np.maximum(speed[too_fast], 1e-12)
         return raw * scale[:, None]
 
+    def assigned_targets(self) -> dict[int, int]:
+        """The live id -> committed-target-index mapping, for callers (namely `Sim.tick`, to
+        restrict `Population.feed`'s capture to an agent's own assigned target) that need to know
+        what this brain decided without reaching into `self._targets` directly."""
+        return self._targets.assigned
+
     def forget(self, ids) -> None:
         """Drop per-agent state (its committed target) for ids that are gone for good -- fed and
         left, in the usual case. Without this, `_assigned` grows for as long as the process runs:
@@ -91,6 +112,14 @@ class Baseline:
         whatever `Population.leave()` (or any other removal) returns, each tick; forgetting an id
         that's still walking is harmless -- it's just reassigned the next time it's seen."""
         self._targets.forget(ids)
+
+    def move_target(self, index: int, new_xy) -> None:
+        """Relocate target `index` to `new_xy` -- see `TargetAssignment.move_target` for the full
+        rationale (already-assigned agents stay committed to `index` and just get a correct field
+        for its new position; nothing needs reassigning). `self.target_positions` is the same list
+        object as `self._targets.target_positions` (see `__init__`), so it reflects this move
+        immediately with no further action here."""
+        self._targets.move_target(index, new_xy)
 
     # -- internals ------------------------------------------------------
 

@@ -60,7 +60,32 @@ class TargetAssignment:
     def forget(self, ids) -> None:
         """Release ids that are gone for good. Without this, `assigned` grows for as long as the
         process runs -- every id ever spawned stays in it forever, even once only a handful of
-        agents are actually alive at once (see docs/JOURNAL.md for the run that caught this the
-        first time, in `Baseline` before this was pulled out into shared code)."""
+        agents are actually alive at once (first caught as an unbounded-memory-growth bug in
+        `Baseline`, before this bookkeeping was pulled out into shared code)."""
         for i in ids:
             self.assigned.pop(i, None)
+
+    def move_target(self, index: int, new_xy) -> None:
+        """Relocate an existing target in place -- update `target_positions[index]` and drop that
+        index's cached field, without touching who's assigned to it.
+
+        This is item assignment on the existing `target_positions` list, not a rebind of
+        `self.target_positions` to a new list object: `Baseline`/`ToyBrain` (and anything else
+        holding a reference to this same list, e.g. as `brain.target_positions`) must see the
+        update through their own reference, which only works if the list object itself never
+        changes identity.
+
+        `self.assigned` is deliberately untouched. Commitment is sticky by target *index*, not by
+        the position that index happened to occupy at assignment time -- see `assign`'s own
+        docstring for why an agent doesn't get to re-route once committed. An agent already
+        assigned to `index` is still committed to *that target*, wherever it now is; it just needs
+        a correct distance field to walk toward it, which is exactly what dropping the cached
+        field below forces on the next `field_for(index)` call. Every *other* target's cached
+        field is left alone -- nothing about a different target changed.
+
+        New assignments made after this call are unaffected by the stale-cache problem in the
+        first place: `assign` reads `self.target_positions[idx]` fresh, on every call, for every
+        id that isn't already in `self.assigned` -- so an id assigned for the first time after
+        `move_target` naturally compares its distance against the new position, not the old one."""
+        self.target_positions[index] = np.array(new_xy, float)
+        self.fields.pop(index, None)

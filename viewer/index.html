@@ -131,7 +131,37 @@ function loadData(data) {
   scrubEl.value = "0";
   dropEl.classList.add("hidden");
   controlsEl.classList.remove("hidden");
+  // Target positions for the current playback time, reconstructed from each target's starting
+  // position (`data.targets`) plus every `data.target_moves` entry that's happened by "now".
+  // `targetMoveCursor` tracks how far into the (already time-sorted) moves list we've applied, so
+  // scrubbing forward during playback doesn't rescan the whole list every frame -- moves are rare
+  // in practice, but the cursor makes that assumption free rather than required.
+  state.currentTargetPositions = data.targets.map((t) => t.position.slice());
+  state.targetMoveCursor = 0;
+  applyTargetMovesUpTo(currentFrameTime());
   resizeCanvas();
+}
+
+function currentFrameTime() {
+  const frame = state.data.frames[state.frameIndex];
+  return frame ? frame.t : 0;
+}
+
+// Applies every not-yet-applied `target_moves` entry with `t <= upToT`, advancing
+// `state.targetMoveCursor`. Resets the cursor (and re-derives positions from scratch) whenever
+// playback has jumped backwards -- e.g. the scrub bar being dragged earlier -- since the cursor
+// only ever walks forward otherwise.
+function applyTargetMovesUpTo(upToT) {
+  const moves = state.data.target_moves;
+  if (state.targetMoveCursor > 0 && moves[state.targetMoveCursor - 1] && moves[state.targetMoveCursor - 1].t > upToT) {
+    state.currentTargetPositions = state.data.targets.map((t) => t.position.slice());
+    state.targetMoveCursor = 0;
+  }
+  while (state.targetMoveCursor < moves.length && moves[state.targetMoveCursor].t <= upToT) {
+    const move = moves[state.targetMoveCursor];
+    state.currentTargetPositions[move.index] = move.position;
+    state.targetMoveCursor += 1;
+  }
 }
 
 function worldToScreen(x, y) {
@@ -177,9 +207,11 @@ function draw() {
   ctx.lineWidth = 3;
   ctx.stroke(combined);
 
-  // Targets
-  state.data.targets.forEach((t) => {
-    const [sx, sy] = worldToScreen(t.position[0], t.position[1]);
+  // Targets: rendered at their current (possibly moved) position, not necessarily their starting
+  // one -- see applyTargetMovesUpTo, which state.currentTargetPositions is kept up to date by.
+  state.data.targets.forEach((t, i) => {
+    const pos = state.currentTargetPositions[i];
+    const [sx, sy] = worldToScreen(pos[0], pos[1]);
     ctx.beginPath();
     ctx.arc(sx, sy, 9, 0, Math.PI * 2);
     ctx.fillStyle = t.kind === "mate" ? style.getPropertyValue("--mate").trim() : style.getPropertyValue("--sugar").trim();
@@ -224,6 +256,7 @@ function step(ts) {
   ) {
     state.frameIndex += 1;
   }
+  applyTargetMovesUpTo(currentFrameTime());
   scrubEl.value = String(state.frameIndex);
   draw();
   if (state.frameIndex >= frames.length - 1) {
@@ -242,6 +275,7 @@ playBtn.addEventListener("click", () => {
     if (state.frameIndex >= state.data.frames.length - 1) {
       state.frameIndex = 0;
       state.accumulatedSimT = 0;
+      applyTargetMovesUpTo(currentFrameTime());
     } else {
       state.accumulatedSimT = state.data.frames[state.frameIndex].t - state.data.frames[0].t;
     }
@@ -255,6 +289,7 @@ scrubEl.addEventListener("input", () => {
   playBtn.textContent = "Play";
   state.frameIndex = parseInt(scrubEl.value, 10);
   state.accumulatedSimT = state.data.frames[state.frameIndex].t - state.data.frames[0].t;
+  applyTargetMovesUpTo(currentFrameTime());
   draw();
 });
 

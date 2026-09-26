@@ -12,6 +12,18 @@ milestone line actually calls for ("recorder and viewer run — all on the toy b
 proof a recorded run can be played back and looked at. This is that -- a flat top-down animation,
 one dot per agent, colour-coded by cohort, target(s) marked, venue walls drawn from the map's own
 polygon geometry (`WalkableMap.outer`/`.holes`) rather than re-deriving them from the raster mask.
+
+Targets vs. target_moves: a target's *starting* position lives in the frozen `scenario.targets`
+config for the whole run, but a target can now move mid-run. Rather than re-baking a moving
+target's position into every single frame (bloating the payload and duplicating the same position
+across many ticks where nothing changed), the payload keeps two separate things: `"targets"` is
+"where things started" -- one entry per target, straight from `scenario.targets`, unchanged
+whether or not it ever moved (this also doubles as the correct answer for a scenario where no
+target ever moves, and as the fallback position before a target's first move). `"target_moves"`
+is the sparse timeline of what changed and when -- one entry per move, in the order they happened,
+each naming which target moved, to where, and at what simulated time. The viewer reconstructs a
+moving target's position at any playback time by taking its starting position from `"targets"`
+and applying every move up to that time.
 """
 
 from __future__ import annotations
@@ -22,17 +34,23 @@ from pathlib import Path
 import numpy as np
 
 
-def export_for_viewer(recording: dict, walkable_map, scenario, path: str | Path) -> dict:
+def export_for_viewer(recording: dict, walkable_map, scenario, path: str | Path, target_moves=None) -> dict:
     """Builds the JSON payload and writes it to `path`; also returns it (mainly so tests can check
-    the shape without re-reading the file)."""
-    data = _build_payload(recording, walkable_map, scenario)
+    the shape without re-reading the file).
+
+    `target_moves`, when given, is an iterable describing every target move that happened during
+    the recorded run. Each item is either a `(t, index, (x, y))` tuple/list, or an object exposing
+    `.t`, `.index` and `.position` attributes -- `index` is the target's position in
+    `scenario.targets`. Order doesn't matter; entries are sorted by `t` before being written. See
+    the module docstring for why this is kept separate from `"targets"`."""
+    data = _build_payload(recording, walkable_map, scenario, target_moves=target_moves)
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data))
     return data
 
 
-def _build_payload(recording: dict, walkable_map, scenario) -> dict:
+def _build_payload(recording: dict, walkable_map, scenario, target_moves=None) -> dict:
     x0, y0, x1, y1 = walkable_map.bounds
     frames = _group_into_frames(recording)
     return {
@@ -42,8 +60,28 @@ def _build_payload(recording: dict, walkable_map, scenario) -> dict:
             "holes": [np.asarray(ring, float).tolist() for ring in walkable_map.holes],
         },
         "targets": [{"kind": t.kind, "position": [float(t.position[0]), float(t.position[1])]} for t in scenario.targets],
+        "target_moves": _build_target_moves(target_moves),
         "frames": frames,
     }
+
+
+def _build_target_moves(target_moves) -> list[dict]:
+    """Normalises the `target_moves` argument (see `export_for_viewer`'s docstring for the
+    accepted item shapes) into the sparse, time-sorted list the JSON payload carries. Always
+    returns a list -- `[]` when `target_moves` is `None` or empty -- so the viewer's JS can rely
+    on the key always being present rather than checking for it."""
+    if not target_moves:
+        return []
+    normalised = []
+    for move in target_moves:
+        if hasattr(move, "t") and hasattr(move, "index") and hasattr(move, "position"):
+            t, index, position = move.t, move.index, move.position
+        else:
+            t, index, position = move
+        x, y = position
+        normalised.append({"t": float(t), "index": int(index), "position": [float(x), float(y)]})
+    normalised.sort(key=lambda m: m["t"])
+    return normalised
 
 
 def _group_into_frames(recording: dict) -> list[dict]:
