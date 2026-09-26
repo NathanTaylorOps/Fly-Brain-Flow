@@ -119,15 +119,15 @@ missing.
 The actual simulator: takes a connectivity table (neurons + weighted, signed synapses) and steps
 it forward in time, spike by spike, for one fly.
 
-- **Sub-task 0, before any graph gets built: verify the two pulled files actually join.**
-  `body-annotations-male-cns-v1.0-minconf-0.5.feather` (neuron identities/types) and
-  `connectome-weights-male-cns-v1.0-minconf-0.5-significant-only.feather` (weighted edges) were
-  pulled separately in Step 1 and neither Step 1's neuPrint checks nor anything in this repo has
-  yet confirmed they key together cleanly on body ID at the same confidence threshold. Load both,
-  confirm the weights table's body IDs are a subset of (or match) the annotation table's, and
-  record the real neuron count, edge count, and column names/dtypes of the weights table in
-  `data/README.md` — this is cheap, removes an unknown before any graph-building work starts, and
-  is exactly the kind of thing that should surface now rather than mid-build.
+- **Sub-task 0 — done, 2026-09-26.** Verified the two pulled files actually join: every body-id in
+  `connectome-weights-male-cns-v1.0-minconf-0.5-significant-only.feather` (25,568,639 weighted
+  edges; columns `body_pre`, `body_post`, `weight`, `type_pre`, `type_post`) is present in
+  `body-annotations-male-cns-v1.0-minconf-0.5.feather` — 0% missing, clean join, no reconciliation
+  step needed before Step 2's graph-building work starts. Also resolved, while in there: the
+  211,577-vs-166,691 neuron-count question flagged during the review pass — 165,122 annotation rows
+  are `status == "Traced"` (matches the published figure within ~1%), the other 46,455 are
+  orphan/glia/unimportant/etc. bodies the raw table includes but Janelia's headline count doesn't.
+  Full numbers in `flybrainflow/data_config.py` (`TRACED_STATUS`) and `data/README.md`.
   Real pulled file sizes (measured 2026-09-26, worth having on hand for the GPU-memory/reload risk
   in `docs/PLAN.md`'s risk table): `body-annotations-...feather` 14.5MB, `body-neurotransmitters-
   ...feather` 43.3MB, `connectome-weights-...-significant-only.feather` 502.2MB.

@@ -53,14 +53,29 @@ REQUIRED_NEURON_TYPES = (
 # mate-seeking) should match this prefix, not REQUIRED_NEURON_TYPES' exact-match list above.
 LC10_SUBTYPE_PREFIX = "LC10"  # use e.g. `type.str.startswith(LC10_SUBTYPE_PREFIX)`, not `type ==`
 
+# NEURON-COUNT RECONCILIATION (2026-09-26, checked against the downloaded body-annotations
+# table): the annotation table has 211,577 rows total, not the 166,691 PLAN.md/README.md cite from
+# Janelia's published headline count -- resolved by the table's own `status` column: 165,122 rows
+# are `status == "Traced"` (within ~1% of the published figure -- the small residual gap is likely
+# just dataset drift between whenever Janelia's project page was last updated and this pull). The
+# other 46,455 rows are `Orphan` (15,925), `Glia` (11,864), `Unimportant` (10,751), `None` (5,472),
+# `Assign` (1,832), and `Anchor` (611) -- non-neuron or partially-traced bodies the raw table
+# includes that Janelia's "neurons" headline count doesn't. Anything that needs "the neuron count"
+# should filter on `status == TRACED_STATUS`, not use the raw row count.
+TRACED_STATUS = "Traced"  # annotations["status"] == TRACED_STATUS -- the ~166.7k "real" neurons
+
+# CONNECTIVITY TABLE, confirmed 2026-09-26 against the downloaded
+# connectome-weights-male-cns-v1.0-minconf-0.5-significant-only.feather: 25,568,639 weighted edges
+# (close to but not identical to the 24.5M a third-party side project reports for the same file --
+# plausibly a threshold/version difference, not investigated further), columns `body_pre`,
+# `body_post`, `weight` (int, observed range 1-2591, mean ~4.85), `type_pre`, `type_post`. Every
+# body-id in this table (163,663 unique `body_pre`, 164,607 unique `body_post`, 164,740 combined)
+# was confirmed present in the annotation table -- 0% missing, the two files join cleanly on body
+# ID at the same confidence threshold, so Step 2 can build directly on both without a reconciliation
+# step of its own.
+#
 # CONFIRMED GAP (checked live against neuPrint + the downloaded body-annotations table,
-# 2026-09-26; 211,577 ROWS in male-cns:v1.0's annotation table at minconf-0.5 -- NOT reconciled
-# yet against the 166,691-neuron figure PLAN.md/README.md cite from Janelia's own published
-# headline count. The 211,577 is a raw row count of the downloaded annotation table, which likely
-# includes partially-traced or lower-confidence bodies beyond Janelia's "clean" published count,
-# but that's an unverified guess, not a confirmed explanation -- don't treat either number as
-# corrected by the other until someone actually checks what's in the ~45k-row gap.):
-# Or42b, Gr64f, Gr5a, and Or47b do not exist
+# 2026-09-26): Or42b, Gr64f, Gr5a, and Or47b do not exist
 # in male-cns:v1.0 under any of `type`, `flywireType`, or `receptorType` -- checked all three,
 # zero matches on every one. This is not a search-string problem. The antennal nerve ("AN") DOES
 # appear in the `entryNerve` column, meaning antennal-lobe input fibers are physically present in

@@ -25,6 +25,9 @@ Real pulled file sizes (measured 2026-09-26, on Kaggle's `/kaggle/working`):
 `body-annotations-male-cns-v1.0-minconf-0.5.feather` 14.5MB,
 `body-neurotransmitters-male-cns-v1.0.feather` 43.3MB,
 `connectome-weights-male-cns-v1.0-minconf-0.5-significant-only.feather` 502.2MB.
-None of that is large in isolation, but nothing has yet confirmed the two files actually key
-together cleanly (same body IDs, same confidence threshold) -- that's Step 2's own first sub-task,
-before any graph gets built on top of them (see `docs/M1_PLAN.md`'s Step 2).
+Confirmed 2026-09-26 (Step 2's sub-task 0): the two files key together cleanly -- every body-id in
+the weights table is present in the annotations table, 0% missing. 25,568,639 weighted edges,
+columns `body_pre`/`body_post`/`weight`/`type_pre`/`type_post`. See `flybrainflow/data_config.py`
+for the full numbers and for `TRACED_STATUS`, which resolves the 211,577-vs-166,691 neuron-count
+question this file used to flag as open (165,122 rows are `status == "Traced"`, matching the
+published figure within ~1%; the rest are orphan/glia/unimportant bodies the raw table includes).
