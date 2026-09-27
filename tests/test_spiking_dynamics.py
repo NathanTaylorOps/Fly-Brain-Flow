@@ -120,26 +120,45 @@ def test_synaptic_input_from_a_spiking_presynaptic_neuron_reaches_the_postsynapt
     assert state.spikes.tolist() == [[0, 1]]
 
 
-def test_overflow_guard_trips_before_the_exact_integer_ceiling_would_be_silently_exceeded():
-    # A single self-loop weight right at dynamics._EXACT_INT_CEILING -- the float64-exact-integer
-    # trick this module documents (see its module docstring) is only valid strictly below that
-    # ceiling, and this must fail loudly rather than silently return a wrong (rounded) number.
-    from flybrainflow.spiking.dynamics import _EXACT_INT_CEILING
+def test_overflow_guard_trips_at_construction_not_per_tick():
+    # Moved 2026-09-27 night (see the 2026-09-27 review pass finding this used to check the wrong,
+    # much larger quantity -- whole-matrix |weight| sum -- on every single tick instead of the real
+    # per-post-neuron worst case, once, at construction): a single self-loop edge with weight right
+    # at dynamics._EXACT_INT_CEILING now must raise OverflowError out of SpikingSimulator's own
+    # constructor, before any step ever runs -- not out of step()/_synaptic_input() on first use.
+    import numpy as np
 
-    indices = torch.tensor([[0], [0]], dtype=torch.int64)
-    values = torch.tensor([_EXACT_INT_CEILING], dtype=torch.int64)
-    weight_matrix = torch.sparse_coo_tensor(indices, values, size=(1, 1)).coalesce()
-    params = LIFParams()
-    state = LIFState(
-        membrane=torch.zeros((1, 1), dtype=torch.int64),
-        refractory_remaining=torch.zeros((1, 1), dtype=torch.int64),
-        spikes=torch.tensor([[1]], dtype=torch.int64),  # so the oversized weight is actually used
+    from flybrainflow.spiking.connectivity import load_connectivity
+    from flybrainflow.spiking.dynamics import _EXACT_INT_CEILING
+    from flybrainflow.spiking.simulator import SpikingSimulator
+
+    connectivity = load_connectivity(
+        body_pre=np.array([0]), body_post=np.array([0]), weight=np.array([_EXACT_INT_CEILING])
     )
+    assert connectivity.max_row_abs_weight_sum == _EXACT_INT_CEILING, (
+        "sanity check: this connectome's one self-loop edge should BE the per-row worst case"
+    )
+
     try:
-        step(state, weight_matrix, torch.zeros((1, 1), dtype=torch.int64), params)
+        SpikingSimulator(connectivity, LIFParams())
     except OverflowError:
         return
-    raise AssertionError("expected an OverflowError, but step() returned normally")
+    raise AssertionError("expected an OverflowError from SpikingSimulator's constructor, but none was raised")
+
+
+def test_overflow_guard_does_not_trip_on_an_ordinary_small_connectome():
+    # The flip side of the test above -- a connectome nowhere near the ceiling must construct fine.
+    # Guards against a future edit accidentally making the check too strict (e.g. comparing the
+    # wrong quantity again, or an off-by-one on the boundary).
+    import numpy as np
+
+    from flybrainflow.spiking.connectivity import load_connectivity
+    from flybrainflow.spiking.simulator import SpikingSimulator
+
+    connectivity = load_connectivity(
+        body_pre=np.array([0, 1]), body_post=np.array([1, 0]), weight=np.array([150, 150])
+    )
+    SpikingSimulator(connectivity, LIFParams())  # must not raise
 
 
 def test_lifparams_rejects_an_unreachable_threshold():

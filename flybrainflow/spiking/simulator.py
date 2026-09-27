@@ -13,7 +13,7 @@ from __future__ import annotations
 import torch
 
 from .connectivity import Connectivity
-from .dynamics import LIFParams, LIFState, step
+from .dynamics import _EXACT_INT_CEILING, LIFParams, LIFState, step
 
 
 class SpikingSimulator:
@@ -30,7 +30,22 @@ class SpikingSimulator:
         """Runs on whatever device `connectivity.weight_matrix` is already on -- call
         `connectivity.to("cuda")` (see `Connectivity.to`) before constructing this if the weight
         matrix should live on a GPU; `SpikingSimulator` itself never decides that, it just follows.
+
+        Checks `connectivity.max_row_abs_weight_sum` against the float64-exact-integer ceiling once,
+        here, rather than every tick (see `dynamics._synaptic_input`'s and
+        `connectivity.load_connectivity`'s own docstrings for why this moved and what quantity it
+        actually checks now) -- raises `OverflowError` immediately, before a single step runs, if
+        this connectome's real per-post-neuron worst case would silently exceed it.
         """
+        if connectivity.max_row_abs_weight_sum >= _EXACT_INT_CEILING:
+            raise OverflowError(
+                f"this connectivity's max_row_abs_weight_sum ({connectivity.max_row_abs_weight_sum}) "
+                f"approaches float64's exact-integer ceiling ({_EXACT_INT_CEILING}) -- the "
+                "float64-as-exact-integer-accumulator trick flybrainflow.spiking.dynamics relies on "
+                "(see its own module docstring) is no longer safe at this scale for at least one "
+                "post-synaptic neuron; this would need a real fixed-point/bigint accumulation "
+                "strategy instead"
+            )
         self.connectivity = connectivity
         self.params = params or LIFParams()
         self.n_flies = n_flies

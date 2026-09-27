@@ -291,9 +291,12 @@ self-contained — it doesn't need me to reproduce their entire external experim
 the structural claim that the *real wiring specifically* (not just "a plausible amount of wiring")
 is what produces the feeding response.
 
-**Pre-work, found missing by the 2026-09-27 review pass — none of this exists yet, and the
-protocol above cannot run without it. Listed here explicitly so it's owned and scoped before the
-gate is attempted, not discovered mid-run:**
+**Pre-work, found missing by the 2026-09-27 review pass. Status as of 2026-09-27 night: the first
+three items below now have real, tested code
+(`flybrainflow/spiking/{neurotransmitters,shuffle,celltypes}.py`, 22 new tests, all actually
+executed and passing via a fake-torch-stub harness — see `docs/JOURNAL.md`) — but two of the three
+still have a real, unresolved gap before the protocol below can actually run against real MaleCNS
+data, listed right after them:**
 
 - **Sign resolution (excitatory/inhibitory).** The weights `load_connectivity` builds today are raw,
   unsigned synapse counts — there is currently no inhibition anywhere in the simulated network at
@@ -323,26 +326,61 @@ gate is attempted, not discovered mid-run:**
   already pulled), not a change to `Connectivity` itself — keep the separation; add a small lookup
   function that takes a loaded annotation dataframe and a type name/pattern and returns the matching
   `body_id`s to pass to `Connectivity.index_of()`.
+
+  **All three above: code done, tests done (2026-09-27 night), but NOT yet run against real data —
+  two real gaps found doing the follow-up research, neither resolved yet:**
+  - **The protocol's own named cell types may not exist under those names in MaleCNS — update,
+    2026-09-27 night: real research found strong, cited candidates, still unconfirmed live.** Gr64f
+    and Gr5a (the sugar-GRN types this section's own pass/fail bar names) are already the exact
+    types `data_config.KNOWN_GAPS` documents as confirmed absent from `male-cns:v1.0` (checked live
+    in Step 1, against `type`, `flywireType`, *and* `receptorType` — zero matches on all three) —
+    turns out those are FlyWire/hemibrain genetic-driver names, and Shiu et al.'s own gate ran on
+    FlyWire, so it never needed a MaleCNS-native name at all. Researching who else has solved this
+    exact problem found: Ganguly, Tastekin et al.'s "The Comprehensive Drosophila Taste-Feeding
+    Connectome" (bioRxiv 2025.08.25.671814) did its own cell-typing work directly on maleCNS
+    (explicitly: "maleCNS... was originally mostly untyped") and names the sweet-sensing GRNs
+    **LB3b**/**LB3c** and the feeding motor neuron **MN9** — i.e. this paper's own maleCNS-native
+    types plausibly ARE the real answer. An independent third-party open-source reimplementation of
+    Shiu et al.'s model that explicitly targets both FlyWire v630 and maleCNS v1.0
+    (github.com/Kisame76/drosophila-brain-mlx) corroborates MN9 specifically with real working code
+    (resolves `type == "MN9"` -> both hemispheres, `MN9_L`/`MN9_R` as instances). LB3b/LB3c are less
+    certain — the taste-feeding paper's own "mostly untyped" caveat means these might be that paper's
+    new typing, not yet reflected in the officially pulled annotation table. See
+    `flybrainflow/data_config.py`'s new `CALIBRATION_GATE_*` constants and comment for the full
+    citation trail. `scripts/run_calibration_gate.py` checks these sourced candidates first (and
+    still refuses to guess beyond them) — no `--stimulus-type`/`--readout-type` given prints whether
+    `MN9`/`LB3b`/`LB3c` are actually present in the real live table, plus broader fallback searches.
+    This still needs a real Kaggle pass to confirm for real — not done tonight, no GPU/real-data
+    access from here.
+  - **`body-neurotransmitters-male-cns-v1.0.feather`'s real column names have still never been
+    inspected live**, exactly as flagged in `neurotransmitters.py`'s own docstring when it was
+    written. `run_calibration_gate.py` prints the file's real columns and tries a short list of
+    plausible body-id/transmitter-column spellings, failing loudly with the real column list if none
+    match — but this is still an untested guess list until it's actually run once against the real
+    file on Kaggle.
 - **`last_sense`/`Recorder._SENSE_WIDTH`**, carried over from Step 2 not actually being finished —
   see the note in Step 2's status section above for why this needs real design thought (a
   brain-reported width, and a decision on how a recording holds two different brains' two different
   widths at once), not just a rename. Only actually needed once `ConnectomeBrain` exists and gets
   recorded (Step 4), but the decision should be made before Step 4 starts building on top of it, so
   raising it here rather than letting it slide to another "Step 5 surprise."
-- **The overflow guard's cost and correctness, found by the 2026-09-27 code review** (not urgent for
-  a 200-step smoke test, but Step 3 plausibly needs thousands of steps to see steady-state firing
-  rates, which is where this starts to matter): `dynamics._synaptic_input` recomputes
+- **The overflow guard's cost and correctness, found by the 2026-09-27 code review — FIXED
+  2026-09-27 night.** `dynamics._synaptic_input` used to recompute
   `weight_matrix.values().abs().sum()` — a full-matrix reduction plus a GPU-to-CPU sync — on *every
-  single tick*, even though the weight matrix never changes after construction. It also checks the
-  wrong quantity relative to what its own docstring justifies: the safety argument is a per-row
-  (per-postsynaptic-neuron) worst case, but the code sums absolute weight over the *entire* matrix,
-  which is a much larger, unrelated number — safely under the ceiling for MaleCNS today by luck of
-  scale, not because the check verifies the actual claim. Fix: precompute the true per-row max
-  absolute weight sum once (e.g. as a field on `Connectivity`, computed in `load_connectivity` from
-  the pre-torch NumPy arrays), and check it once at `SpikingSimulator` construction rather than
-  every tick. Not done tonight because it touches the exact function `test_overflow_guard_trips_...`
-  exercises directly — needs a matching test-file update and a real pytest run to confirm 169/169
-  still holds, not a same-night blind edit.
+  single tick*, even though the weight matrix never changes after construction, and checked the
+  wrong quantity relative to what its own docstring justified: the safety argument is a per-row
+  (per-postsynaptic-neuron) worst case, but the old code summed absolute weight over the *entire*
+  matrix, a much larger, unrelated number — safely under the ceiling for MaleCNS today by luck of
+  scale, not because the check verified the actual claim. Fix applied: `Connectivity` now carries
+  `max_row_abs_weight_sum` (computed once, cheaply, from plain NumPy in `load_connectivity`, via
+  `np.bincount` over post-indices), and `SpikingSimulator.__init__` checks it once against the
+  ceiling at construction — not every tick. `test_overflow_guard_trips_...` was rewritten to
+  construct through `load_connectivity`/`SpikingSimulator` and expect the `OverflowError` from the
+  constructor, plus a new companion test that an ordinary small connectome constructs fine. Verified
+  as far as this sandbox can (the NumPy bincount formula hand-checked directly; the full
+  torch-dependent path hand-traced carefully, same discipline as everything else here) — **still
+  needs a real pytest run to confirm 169 (+ new tests) actually pass**, not yet done as of this
+  writing (no torch/pytest from where this was built).
 - **The M1.5 feasibility claim isn't actually validated by tonight's real number yet.** Step 2's
   text asserts "feasibility is comfortable" based on a third-party FlyWire benchmark, not this
   project's own measurement. Tonight's real number (14.71ms per internal sub-step, one fly, zero
@@ -358,6 +396,16 @@ gate is attempted, not discovered mid-run:**
    vs. shuffled control. FlyWire is signed into already (Codex, per SETUP.md C4) and is used here
    *only* for this one check; it never ships with the project and never touches MaleCNS-side code
    or data.
+   - **New gap, found 2026-09-27 doing this step's own follow-up research:** `docs/SETUP.md`'s C4
+     only documents signing into `codex.flywire.ai`, a web UI — it says nothing about how to
+     programmatically *pull* FlyWire data, which this step actually needs. That real mechanism turns
+     out to be **CAVE** (`caveclient`/`fafbseg` Python packages) — a completely different toolchain
+     and auth flow from the neuPrint-based pattern (`neuprint-python`, `NEUPRINT_TOKEN`) this project
+     already has working for MaleCNS. Nothing CAVE-side has been written — no account/token flow
+     confirmed, no code — because writing that blind, without something real to check it against,
+     isn't worth the risk of shipping wrong auth/pull code that looks plausible but has never
+     actually been run. This needs Nathan's own CAVE signup/token and a short follow-up research
+     pass on `caveclient`'s actual API before this leg of Step 3 can be written with any confidence.
    - If this fails: the bug is in the simulator (Step 2), not the dataset, because the dataset is
      the one they validated on. Fix the scaffold, not the data.
 2. **Switch to MaleCNS, re-check.** Same scaffold, same protocol, now on the pinned `male-cns:v1.0`
@@ -386,6 +434,16 @@ datasets, with the one-variable-at-a-time trail showing which dataset (if either
 
 Only once Step 3 has passed does the real connectome get connected to the M0 world it'll actually
 navigate.
+
+**Status, 2026-09-27: deliberately not started.** Nathan asked for Step 3 and Step 4 to be combined
+and carried out together tonight; only Step 3's pre-work got built. This is a deliberate call, not
+an oversight: this section's own first sentence gates Step 4 behind Step 3 *passing*, and the clock
+ratio (`brain_dt`) this section calls "an empirical call... once Step 3's calibration run gives a
+feel for it" is a real Step-4 parameter this project has no calibrated value for yet — building
+`ConnectomeBrain` now would mean wiring it against a clock ratio and calibration constants nobody
+has actually checked, on top of a calibration gate that hasn't run against real data yet either (see
+Step 3's still-open MN9/sugar-GRN naming gap above). That's exactly the kind of guessed-in-advance
+number this project's own stated philosophy (PLAN.md's "one variable at a time") argues against.
 
 - **Sensory injection**, reusing M0's existing fields rather than rebuilding them:
   | Signal | Driven by | M0 code already there |

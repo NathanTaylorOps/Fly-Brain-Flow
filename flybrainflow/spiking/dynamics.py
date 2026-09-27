@@ -96,16 +96,15 @@ def _synaptic_input(weight_matrix: torch.Tensor, spikes: torch.Tensor) -> torch.
     dense int64, shape (n_flies, n). Returns dense int64, shape (n_flies, n): each fly's total
     incoming synaptic input per neuron this tick. See module docstring for why this goes through
     float64 rather than doing the matmul in int64 directly.
+
+    No overflow check here on purpose (moved out 2026-09-27 night -- see the 2026-09-27 review pass
+    finding this used to check the wrong, much larger quantity, at the wrong time): the real
+    worst-case quantity (`Connectivity.max_row_abs_weight_sum`, the largest per-post-neuron sum of
+    |weight|) is computed once, cheaply, from plain NumPy in `connectivity.load_connectivity`, and
+    checked once against `_EXACT_INT_CEILING` in `SpikingSimulator.__init__` -- not recomputed via a
+    full-matrix GPU reduction (plus a GPU-to-CPU sync) on every single tick forever, for a quantity
+    that never changes after construction.
     """
-    n_flies, n = spikes.shape
-    max_possible_sum = int(weight_matrix.values().abs().sum().item()) if weight_matrix.values().numel() else 0
-    if max_possible_sum >= _EXACT_INT_CEILING:
-        raise OverflowError(
-            f"sum of |weights| ({max_possible_sum}) approaches float64's exact-integer ceiling "
-            f"({_EXACT_INT_CEILING}) -- the float64-as-exact-integer-accumulator trick this "
-            "function relies on (see dynamics.py's module docstring) is no longer safe at this "
-            "scale; this would need a real fixed-point/bigint accumulation strategy instead"
-        )
     weight_f64 = weight_matrix.to(torch.float64)
     spikes_f64 = spikes.to(torch.float64)
     # weight_matrix @ spikes.T gives (n, n_flies); transpose back to the (n_flies, n) shape

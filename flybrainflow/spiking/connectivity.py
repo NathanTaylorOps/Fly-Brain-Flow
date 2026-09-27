@@ -31,6 +31,7 @@ class Connectivity:
 
     body_ids: np.ndarray  # int64, shape (n_neurons,) -- body_ids[i] is neuron i's real body ID
     weight_matrix: torch.Tensor  # sparse COO int64, shape (n_neurons, n_neurons), coalesced
+    max_row_abs_weight_sum: int  # see load_connectivity's own docstring -- the real per-row overflow-guard quantity
 
     @property
     def n_neurons(self) -> int:
@@ -52,8 +53,14 @@ class Connectivity:
         mutable simulation state), so this returns a new instance rather than moving in place.
         `body_ids` stays a plain numpy array regardless of device -- it's only ever used for
         id<->index bookkeeping on the CPU side, never inside a per-step tensor op.
+        `max_row_abs_weight_sum` is topology/weight-derived, not device-derived, so it carries over
+        unchanged -- moving a matrix to a GPU doesn't change what it contains.
         """
-        return Connectivity(body_ids=self.body_ids, weight_matrix=self.weight_matrix.to(device))
+        return Connectivity(
+            body_ids=self.body_ids,
+            weight_matrix=self.weight_matrix.to(device),
+            max_row_abs_weight_sum=self.max_row_abs_weight_sum,
+        )
 
 
 def load_connectivity(
@@ -78,6 +85,17 @@ def load_connectivity(
     bulk connectivity export already does (one row per pre/post pair, pre-aggregated), but summing
     on load rather than assuming it means a connectome from a different source that
     *hasn't* pre-aggregated duplicate edges still produces the correct total weight per pair.
+
+    Also computes `max_row_abs_weight_sum` -- the largest, over every post-synaptic neuron, of the
+    sum of |weight| over that neuron's own incoming edges. This is the actual worst-case quantity
+    `dynamics._synaptic_input`'s float64-exact-integer overflow guard needs to check against (every
+    pre-synaptic neuron feeding into one post-synaptic neuron firing on the very same tick), not the
+    whole matrix's total |weight| sum (a much larger, unrelated number that happened to stay safely
+    under the ceiling at MaleCNS's real scale by luck, not because it verified the actual claim --
+    found in the 2026-09-27 review pass, fixed 2026-09-27 night). Computed once here, from the
+    pre-torch NumPy arrays, rather than recomputed from the sparse tensor on every simulation tick
+    (`SpikingSimulator.__init__` checks it once against the ceiling at construction time instead --
+    see `dynamics.py`'s and `simulator.py`'s own docstrings).
     """
     if not (len(body_pre) == len(body_post) == len(weight)):
         raise ValueError(
@@ -115,4 +133,26 @@ def load_connectivity(
     values = torch.tensor(weight_arr, dtype=torch.int64)
     weight_matrix = torch.sparse_coo_tensor(indices, values, size=(n, n)).coalesce()
 
-    return Connectivity(body_ids=body_ids, weight_matrix=weight_matrix)
+    max_row_abs_weight_sum = _max_row_abs_weight_sum(post_idx, weight_arr, n)
+
+    return Connectivity(body_ids=body_ids, weight_matrix=weight_matrix, max_row_abs_weight_sum=max_row_abs_weight_sum)
+
+
+def _max_row_abs_weight_sum(post_idx: np.ndarray, weight_arr: np.ndarray, n: int) -> int:
+    """The real quantity `dynamics._synaptic_input`'s overflow guard needs (see
+    `load_connectivity`'s own docstring): the largest, over every post-synaptic neuron, of the sum
+    of |weight| over that neuron's own incoming edges. Split out as its own plain-NumPy function
+    (rather than inlined in `load_connectivity`) so it's independently testable without needing
+    torch at all beyond the module-level import -- see `tests/test_spiking_connectivity.py`'s tests
+    for this function specifically, added 2026-09-27 night alongside the fix that introduced it.
+
+    Vectorized with `np.bincount` rather than a per-edge Python loop/groupby -- matters at 25M+
+    edges, same reasoning as `load_connectivity`'s own `searchsorted` id lookups. `minlength=n`
+    covers a neuron with zero incoming edges (bincount would otherwise just omit it from the output
+    array rather than error, but explicit `minlength` keeps this correct even in the edge case where
+    every edge happens to share one post index).
+    """
+    if n == 0:
+        return 0
+    row_abs_sums = np.bincount(post_idx, weights=np.abs(weight_arr).astype(np.float64), minlength=n)
+    return int(row_abs_sums.max())

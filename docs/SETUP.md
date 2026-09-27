@@ -100,10 +100,19 @@ python3 -c "from neuprint import Client; import os; c = Client('https://neuprint
 ```
 - Done when: it prints a list of dataset names that includes something starting with `male-cns`. If it says `KeyError: 'NEUPRINT_TOKEN'`, the secret didn't load — restart the Codespace and try again.
 
-**C4. FlyWire Codex — can wait until M1.**
+**C4. FlyWire Codex — can wait until M1. M1 is now, and this is still incomplete.**
 Why: only needed for the calibration step. Sign up whenever you get there.
 - `codex.flywire.ai` → sign in with Google → accept the terms.
 - Done when: you can see the dataset explorer.
+- **Found 2026-09-27, still open:** the sign-in above is the web UI only. It does not by itself get
+  you programmatic (bulk, scripted) access to FlyWire data, which M1 Step 3 actually needs to run
+  the calibration gate's FlyWire leg. The real mechanism for that turns out to be **CAVE**
+  (`caveclient`/`fafbseg` Python packages), a completely different toolchain and auth flow from the
+  neuPrint pattern already working for MaleCNS (C1–C3 above). Nothing CAVE-side has been set up or
+  written against yet — an account/token flow for it hasn't been confirmed, and no code should be
+  written blind against an unconfirmed setup. Next real step here: sign up for CAVE access (likely
+  through the same FlyWire/Codex account, but unconfirmed) and do a short follow-up check of
+  `caveclient`'s actual API before Step 3's FlyWire leg gets written.
 
 ---
 

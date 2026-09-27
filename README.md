@@ -12,8 +12,14 @@ wind, the 2D collision solver, the spawn/feed/leave agent lifecycle, the baselin
 toy brain, the sim loop, the recorder, and the playback viewer above. **M1 (the real connectome) is
 underway**, scoped in [docs/M1_PLAN.md](docs/M1_PLAN.md) — the MaleCNS dataset is pinned and
 verified against neuPrint, and the spiking-graph scaffold that runs on it is built and GPU-verified
-at full connectome scale (164,740 neurons, 25.5M synaptic connections, on a real GPU, no crash). The
-calibration gate — one real fly finding a moved target — is next.
+at full connectome scale (164,740 neurons, 25.5M synaptic connections, on a real GPU, no crash). Sign
+resolution, the calibration control's shuffle, and cell-type lookup are built and tested; a real,
+cited research pass turned up strong candidates for the gate's sugar-GRN/MN9 cell types (MN9,
+LB3b/LB3c) and the actual FlyWire access mechanism (Codex's static download API), both still needing
+a live confirmation. The calibration gate itself — one real fly finding a moved target — is next.
+Step 4's real brain has an interface skeleton in place (`flybrainflow/brains/connectome.py`,
+deliberately unimplemented) so the actual wiring work has a shape to fill in once the gate passes.
+See [docs/M1_PLAN.md](docs/M1_PLAN.md) for the full trail.
 
 ## What
 
