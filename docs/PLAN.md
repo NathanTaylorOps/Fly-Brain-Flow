@@ -1,6 +1,7 @@
 # Fly-Brain Flow — the plan
 
-**Status:** planning done · M0 (plumbing) not started · nothing runs yet
+**Status:** see the [README](../README.md) for current progress — this line kept going stale here
+while the README got updated, so it now just points there instead of drifting again.
 *Planned and drafted with AI assistance; the decisions are mine.*
 
 This is the plan, in full. It's long because I'd rather find the mistakes on paper than in a half-built repo. The short version is in the [README](../README.md).
@@ -269,6 +270,8 @@ Note that all of these show up at **tens to hundreds** of agents. Thousands is f
 | 11 | Do flies ever come back with memory? (default: no) | only if a reason appears |
 | 12 | The actual 20-row personality table | M2 |
 | 13 | Slot layout at a target (ring of six vs an area) | M2 |
+| 14 | Excitatory/inhibitory sign for the pulled synapse weights — currently unresolved and unowned, see the risk table above | M1 Step 3, before calibration can run at all |
+| 15 | Degree-preserving shuffle for the calibration control, and cell-type → matrix-index lookup for stimulate/read-out — neither exists yet, see the risk table above | M1 Step 3 |
 
 ---
 
@@ -285,8 +288,11 @@ Note that all of these show up at **tens to hundreds** of agents. Thousands is f
 | Dataset gets revised under me | Low | Medium | Version pinned, hashed, and confirmed live against neuPrint (`data/VERSION`) |
 | Cloud bill creeps | Low | Medium | Caps before first use |
 | A named sensory neuron type from the plan's own tables (Or42b, Gr64f, Gr5a, Or47b) doesn't actually exist in male-cns:v1.0 by that name | Confirmed, not hypothetical | Medium | Documented gap, three live resolution options recorded in `flybrainflow/data_config.py`'s `KNOWN_GAPS`; decision deferred to M1 Step 4 (sensory model), not blocking Step 2 |
-| The pulled connectivity table (weighted synapse edges, tens of millions of rows) is too large or slow to reload/hold in GPU memory every session | Unmeasured | Medium | Actual file sizes not yet recorded anywhere in this repo; measure and record before Step 2's full-connectome (not just synthetic-toy) run, and confirm whether Kaggle's disk quota survives holding the file plus a loaded sparse tensor at once (it's already been hit once, at M1 Step 1) |
+| The pulled connectivity table (weighted synapse edges, tens of millions of rows) is too large or slow to reload/hold in GPU memory every session | Measured, confirmed fine | Low | 502MB weights file, 25,568,639 edges, 13.5s to build the full sparse matrix on Kaggle, 164,740-neuron GPU run confirmed 2026-09-27 (`docs/JOURNAL.md`) — not a real bottleneck at Step 2's single-fly scale; recheck once M1.5 batches many flies at once |
 | GPU spiking-sim runs aren't bit-for-bit reproducible run to run | Expected | Medium | M1_PLAN.md's Step 2 already names this in prose; matters because M3's inspector layer-3 recompute depends on it — needs an explicit mitigation (seeded RNG, tolerance-based comparison, or accepting non-reproducibility and designing the inspector around it) decided during Step 2, not discovered during M3 |
+| A private (not public) GitHub repo returns a plain `404` — not `403` or an auth prompt — from *every* anonymous request (pip install, curl, the GitHub API, codeload.github.com), which is indistinguishable from a wrong URL or a missing file and silently breaks any fresh Kaggle/Colab session | Confirmed, hit for real | Low (once known) | Repo flipped to Public 2026-09-27 (it's a portfolio project anyway); if this or a future project ever needs a fresh anonymous pull again and gets a same-shaped 404 across multiple unrelated GitHub endpoints, check repo visibility first — see `docs/JOURNAL.md`'s 2026-09-27 entry |
+| Excitatory/inhibitory sign for the ~25.5M pulled synapse weights is not yet resolved from anywhere — `load_connectivity` takes whatever weight it's given, currently all-positive raw synapse counts, with no sign at all | Confirmed, currently true | High | Found in the 2026-09-27 review pass: this is unowned work, not a decided-and-deferred item — three docs disagreed about whose job it is (connectivity.py says Step 4, JOURNAL.md's Step 2 entry implies Step 3, Step 3's own written protocol never mentions it). A purely-excitatory, densely recurrent ~165k-neuron network is a real runaway-activity risk on its own, separate from "a few wrong signs." Must be resolved before Step 3's calibration protocol can run at all — see M1_PLAN.md's Step 3 pre-work list |
+| Step 3's calibration protocol (shuffled-connectome control, stimulate-by-cell-type / read-out-by-cell-type) assumes machinery that doesn't exist yet: no degree-preserving shuffle utility anywhere in the repo, and `Connectivity` deliberately carries no cell-type information at all | Confirmed, currently true | Medium | Found in the 2026-09-27 review pass. Real engineering, not a given — "same node degrees" isn't even fully specified yet (in/out separately? weight distribution preserved?) for a signed weighted directed multigraph. Needs to be scoped as explicit Step 3 pre-work, not discovered mid-gate — see M1_PLAN.md's Step 3 pre-work list |
 | Car mode looks like a gimmick and cheapens the real result | Medium | Low | Present it honestly; lead with the braking mapping, which does hold up |
 | Mate target ends up just "second sugar target" | Medium | Low | First thing to cut |
 | Wall-aware odour (geodesic distance around barriers, needed for a stadium/station venue) is plain Dijkstra — correct, not fast; recomputing it every frame for a live-dragged target on a full-size map could be too slow | Medium | Medium | Only recomputed when a target's position actually changes, not every step; benchmark on the real venue size before relying on live-drag at scale, swap in a vectorized wavefront approximation if it's too slow |

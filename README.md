@@ -11,7 +11,9 @@ quality — with 159 tests green. That's the map loader, scenario config, wall-a
 wind, the 2D collision solver, the spawn/feed/leave agent lifecycle, the baseline steering model, the
 toy brain, the sim loop, the recorder, and the playback viewer above. **M1 (the real connectome) is
 underway**, scoped in [docs/M1_PLAN.md](docs/M1_PLAN.md) — the MaleCNS dataset is pinned and
-verified against neuPrint; the spiking-graph scaffold that runs on it is next.
+verified against neuPrint, and the spiking-graph scaffold that runs on it is built and GPU-verified
+at full connectome scale (164,740 neurons, 25.5M synaptic connections, on a real GPU, no crash). The
+calibration gate — one real fly finding a moved target — is next.
 
 ## What
 
@@ -37,7 +39,7 @@ It's long and deliberate, on purpose: **[docs/PLAN.md](docs/PLAN.md)**. Scope, d
 - [ ] **M4 — The result.** Lane formation and the doorway test vs baseline, with numbers.
 - [ ] **M5 — Stretch.** Compare against a real dataset.
 
-**Next up:** M1 — the real connectome.
+**Next up:** M1 Step 3 — the calibration gate.
 
 ## Running it
 

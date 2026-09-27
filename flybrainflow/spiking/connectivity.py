@@ -96,9 +96,23 @@ def load_connectivity(
     pre_idx = np.searchsorted(body_ids, body_pre)
     post_idx = np.searchsorted(body_ids, body_post)
 
+    weight_arr = np.asarray(weight)
+    # This whole spiking package's design rests on exact integer arithmetic, nothing approximate
+    # (see dynamics.py's own docstring) -- a non-integer weight cast straight to int64 would be
+    # silently truncated toward zero (4.85 -> 4) rather than rejected, undermining that guarantee
+    # with no warning. Found in the 2026-09-27 review pass: the real feather column is documented
+    # as already-integer, but nothing enforced it here, so a future data pull with a differently
+    # typed (e.g. float64-with-nulls) weight column would corrupt silently instead of failing loudly.
+    if not np.array_equal(weight_arr, weight_arr.astype(np.int64)):
+        raise ValueError(
+            "weight must be all integers -- flybrainflow.spiking is built on exact integer "
+            "arithmetic throughout (see dynamics.py's module docstring); a fractional weight "
+            "would be silently truncated rather than handled correctly"
+        )
+
     n = len(body_ids)
     indices = torch.tensor(np.stack([post_idx, pre_idx]), dtype=torch.int64)  # post-major, see Connectivity docstring
-    values = torch.tensor(np.asarray(weight), dtype=torch.int64)
+    values = torch.tensor(weight_arr, dtype=torch.int64)
     weight_matrix = torch.sparse_coo_tensor(indices, values, size=(n, n)).coalesce()
 
     return Connectivity(body_ids=body_ids, weight_matrix=weight_matrix)

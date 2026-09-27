@@ -83,7 +83,13 @@ def _get_neuprint_token(secret_name: str) -> str | None:
         return None
     try:
         return UserSecretsClient().get_secret(secret_name)
-    except Exception:
+    except Exception as e:
+        # Don't swallow the real reason -- a secret that IS attached but fails for some other
+        # cause (wrong name, permissions, a Kaggle API change) would otherwise get the exact same
+        # generic "not found, go add it" message below as a genuinely-missing secret, sending
+        # whoever's debugging this toward a secret that already exists. Print what actually
+        # happened; still return None so main()'s existing --secret-name guidance still applies.
+        print(f"  (Kaggle secret lookup for '{secret_name}' failed: {type(e).__name__}: {e})")
         return None
 
 
@@ -198,9 +204,14 @@ def main() -> None:
     print("\n" + "=" * 60)
     print("SUMMARY (paste this whole block back)")
     print("=" * 60)
+    # Split "missing" into genuinely unexpected vs. already-confirmed-absent (KNOWN_GAPS) --
+    # without this, the 4 confirmed gaps show up as "unexpected -- investigate" on every single
+    # run forever, training whoever reads this summary to ignore that line entirely. Found in the
+    # 2026-09-27 review pass: this line was always non-empty and always the same 4 names.
+    unexpected_missing = [t for t in missing if t not in KNOWN_GAPS]
     print(f"dataset tag confirmed: {tag_ok} ({MALECNS_VERSION})")
     print(f"flywireType column present: {has_flywire_type}")
-    print(f"missing required types (unexpected -- investigate): {missing or 'none'}")
+    print(f"missing required types (unexpected -- investigate): {unexpected_missing or 'none'}")
     print(f"known gaps (expected absent, see data_config.KNOWN_GAPS): {list(KNOWN_GAPS)}")
     print(f"LC10 subtypes found: {sorted(lc10_df['type'].dropna().unique().tolist()) if len(lc10_df) else 'NONE FOUND'}")
     print(f"Johnston's organ types found: {sorted(jo_df['type'].dropna().unique().tolist()) if len(jo_df) else 'NONE FOUND'}")

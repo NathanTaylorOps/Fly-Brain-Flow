@@ -73,6 +73,15 @@ class SpikingSimulator:
         `external_input`: same shape as one step's input, reused unchanged every step, or `None`
         for all-zero (no injection) every step. Returns a stacked spike history, shape
         `(n_steps, n_flies, n_neurons)`.
+
+        Memory warning (found in the 2026-09-27 review pass, not yet fixed): the returned history
+        is one int64 (8 bytes) per neuron per fly per step, even though a spike is really 1 bit --
+        at real MaleCNS scale that's ~1.3MB per step per fly just for this array. A smoke-test-sized
+        `n_steps` (the 200 used by `run_full_connectome_check.py`) is fine; anything doing Step 3's
+        actual calibration work, which plausibly needs thousands of steps to see steady-state firing
+        rates, should NOT reach for this method with a large `n_steps` -- it will happily allocate
+        gigabytes and OOM with no warning from the code itself. Call `.step()` directly in a loop
+        and reduce/discard each step's result as you go instead of accumulating history here.
         """
         if external_input is None:
             external_input = torch.zeros((self.n_flies, self.connectivity.n_neurons), dtype=torch.int64, device=self._device)

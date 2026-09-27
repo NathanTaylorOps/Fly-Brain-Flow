@@ -60,6 +60,10 @@ Done when: a toy-brain fly, mid-run, visibly re-routes to a target that moved, c
 triggers at the new spot, and it's covered by tests that run in the existing CI — before any of
 Steps 1–6 below start.
 
+**Status: done, 2026-09-26.** (Missing this line was itself a finding of the 2026-09-27 review pass
+— Steps 1 and 2 both had a dated status line and this one didn't, even though `docs/JOURNAL.md`
+confirms it landed before Step 1 started.)
+
 ## Step 1 — Pin the data
 
 Nothing else can start on solid ground until this is done; it's also PLAN.md's own "still to
@@ -240,7 +244,10 @@ run — see `docs/JOURNAL.md`). `.github/workflows/tests.yml` updated to install
 (`torch`) so these run in CI going forward, not just locally.
 
 Full-connectome GPU tier: `scripts/run_full_connectome_check.py` run for real on Kaggle against the
-actual pulled MaleCNS data — 164,740 neurons, 25,568,639 edges, on an actual GPU, 200 spiking
+actual pulled MaleCNS data — 164,740 neurons (unique body-ids with at least one surviving edge in
+the significant-only weight table — a graph-node count, not the same thing as the ~166.7k
+published headline neuron count or the 165,122 `Traced`-status count; see `data_config.py`'s
+`TRACED_STATUS` comment for how those relate), 25,568,639 edges, on an actual GPU, 200 spiking
 sub-steps, no crash, activity guard rail held, 2.94s total (14.71ms/step). Zero spikes and zero
 membrane activity in this run is expected, not a bug: the input was all-zero/neutral and the start
 state was all-zero, so there was nothing to drive a spike. This check only proves the machinery
@@ -252,6 +259,18 @@ on GitHub first — anonymous pip/curl/gcsfs requests from Kaggle all 404 agains
 which looks identical to a wrong URL or a missing file; worth remembering if this ever needs
 re-running from a fresh Kaggle session). Full console output and the `SUMMARY` block are logged in
 `docs/JOURNAL.md`.
+
+**One promise this section made and did not keep, caught by the 2026-09-27 review pass, not swept
+under the rug:** the `last_sense`/`Recorder._SENSE_WIDTH` decision above says explicitly "make this
+change as part of Step 2, not as a Step 5 surprise." It didn't happen — `flybrainflow/recorder.py:38`
+still has `_SENSE_WIDTH = 6` as a hardcoded module constant, completely unchanged. On inspection this
+turned out to be more than a rename: today's design assumes one global sense-width shared by every
+cohort's brain (mixed cohorts get NaN-padded to that same width), and a real `ConnectomeBrain` will
+almost certainly have a different width than `ToyBrain`'s 6 — so making this brain-reported rather
+than hardcoded also means deciding how a recording holds two different brains' two different widths
+at once, which the current NumPy-array-per-column format doesn't obviously support. That's a real
+design question, not safe to rush through blind — moved to Step 3's pre-work list below rather than
+silently deferred again.
 
 ## Step 3 — The calibration gate
 
@@ -271,6 +290,68 @@ was picked over trying to match their full 106-cell-type optogenetic screen beca
 self-contained — it doesn't need me to reproduce their entire external experimental dataset, just
 the structural claim that the *real wiring specifically* (not just "a plausible amount of wiring")
 is what produces the feeding response.
+
+**Pre-work, found missing by the 2026-09-27 review pass — none of this exists yet, and the
+protocol above cannot run without it. Listed here explicitly so it's owned and scoped before the
+gate is attempted, not discovered mid-run:**
+
+- **Sign resolution (excitatory/inhibitory).** The weights `load_connectivity` builds today are raw,
+  unsigned synapse counts — there is currently no inhibition anywhere in the simulated network at
+  all. Three places in this project disagreed about whose job this is (`connectivity.py`'s docstring
+  said Step 4; this file's own Step 2 status implied Step 3; neither Step 3's nor Step 4's actual
+  task list named it) — it belongs here, first, because a purely-excitatory ~165k-neuron recurrent
+  network is a real runaway-activity risk on its own, independent of "a few wrong signs," and
+  because the sugar-GRN → MN9 contrast this whole gate depends on is not a meaningful test without
+  real inhibition in the circuit. `body-neurotransmitters-male-cns-v1.0.feather` was already pulled
+  in Step 1 specifically for this. Concretely: map each neuron's predicted neurotransmitter to a
+  sign convention (which transmitters are excitatory vs. inhibitory — this needs its own short
+  literature check, not a guess), apply it per pre-synaptic neuron when building the weight matrix
+  (every outgoing edge from an inhibitory neuron gets a negative weight), and write the convention
+  down here once decided.
+- **Degree-preserving shuffle.** The gate's control condition needs "the same connectome with edges
+  randomised but node degrees preserved," and no such utility exists in this repo yet. Before
+  building it, decide and write down: in-degree and out-degree preserved separately, or just total
+  edge count? Is the weight distribution preserved (reshuffle which pairs share an edge, keep the
+  multiset of weights) or resampled? How are the summed duplicate-pre/post pairs from
+  `load_connectivity`'s coalescing handled — reshuffle before or after that aggregation? Get this
+  decided and implemented as its own tested utility (small synthetic connectome first, same pattern
+  as `flybrainflow/spiking/`'s own build) before it's needed for a real run.
+- **Cell-type → matrix-index lookup.** `Connectivity` deliberately carries only `body_ids`, no type
+  information (by design, so the spiking core stays connectome-source-agnostic) — but "stimulate
+  sugar-GRNs, read out MN9" needs to go from a cell-type name to a set of matrix indices. This is
+  glue code joining back to the annotation table (`body-annotations-male-cns-v1.0-minconf-0.5.feather`,
+  already pulled), not a change to `Connectivity` itself — keep the separation; add a small lookup
+  function that takes a loaded annotation dataframe and a type name/pattern and returns the matching
+  `body_id`s to pass to `Connectivity.index_of()`.
+- **`last_sense`/`Recorder._SENSE_WIDTH`**, carried over from Step 2 not actually being finished —
+  see the note in Step 2's status section above for why this needs real design thought (a
+  brain-reported width, and a decision on how a recording holds two different brains' two different
+  widths at once), not just a rename. Only actually needed once `ConnectomeBrain` exists and gets
+  recorded (Step 4), but the decision should be made before Step 4 starts building on top of it, so
+  raising it here rather than letting it slide to another "Step 5 surprise."
+- **The overflow guard's cost and correctness, found by the 2026-09-27 code review** (not urgent for
+  a 200-step smoke test, but Step 3 plausibly needs thousands of steps to see steady-state firing
+  rates, which is where this starts to matter): `dynamics._synaptic_input` recomputes
+  `weight_matrix.values().abs().sum()` — a full-matrix reduction plus a GPU-to-CPU sync — on *every
+  single tick*, even though the weight matrix never changes after construction. It also checks the
+  wrong quantity relative to what its own docstring justifies: the safety argument is a per-row
+  (per-postsynaptic-neuron) worst case, but the code sums absolute weight over the *entire* matrix,
+  which is a much larger, unrelated number — safely under the ceiling for MaleCNS today by luck of
+  scale, not because the check verifies the actual claim. Fix: precompute the true per-row max
+  absolute weight sum once (e.g. as a field on `Connectivity`, computed in `load_connectivity` from
+  the pre-torch NumPy arrays), and check it once at `SpikingSimulator` construction rather than
+  every tick. Not done tonight because it touches the exact function `test_overflow_guard_trips_...`
+  exercises directly — needs a matching test-file update and a real pytest run to confirm 169/169
+  still holds, not a same-night blind edit.
+- **The M1.5 feasibility claim isn't actually validated by tonight's real number yet.** Step 2's
+  text asserts "feasibility is comfortable" based on a third-party FlyWire benchmark, not this
+  project's own measurement. Tonight's real number (14.71ms per internal sub-step, one fly, zero
+  activity) can't yet be converted to "seconds of compute per simulated second" because the clock
+  ratio (`brain_dt`) is still undecided — and separately, `_synaptic_input`'s full-matrix
+  int64→float64 conversion is a fixed per-tick cost independent of `n_flies`, so a single-fly
+  measurement won't reveal how this actually scales once M1.5 batches many flies at once. Worth
+  measuring for real, with the clock ratio decided, before M1.5's GPU-count benchmark is scheduled
+  on the assumption that tonight's number already answers the feasibility question.
 
 1. **Reproduce Shiu et al. on FlyWire.** Run the Step-2 scaffold on FlyWire data — the same
    dataset the published result used — with the sugar-GRN → MN9 protocol above, real connectome
@@ -469,6 +550,6 @@ never into git. GPU sessions get closed when not in use, same rule as SETUP.md's
 
 ---
 
-Next: Step 0 — wire real target movement end to end, against the toy brain, before touching the
-dataset or the simulator. Then Step 1 (pin the dataset, confirm neuron coverage) — same "plan
-before build" order this whole project has followed since M0.
+Next: Step 3 — the calibration gate. Steps 0–2 are done (see their status lines above); before
+Step 3 itself is attempted, its pre-work list needs to actually close out first — see Step 3's own
+section for what that is.

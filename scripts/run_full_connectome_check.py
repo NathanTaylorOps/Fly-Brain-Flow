@@ -97,16 +97,23 @@ def main() -> None:
     crashed = False
     max_abs_membrane = 0
     total_spikes = 0
+    steps_completed = 0
     try:
         for i in range(args.n_steps):
             spikes = sim.step(zero_input)
             total_spikes += int(spikes.sum().item())
             max_abs_membrane = max(max_abs_membrane, int(sim.state.membrane.abs().max().item()))
+            steps_completed = i + 1
     except Exception as e:
         crashed = True
         crash_message = f"{type(e).__name__}: {e}"
     elapsed = time.time() - t0
 
+    # Report max_abs_membrane/total_spikes even on a crash -- found in the 2026-09-27 review pass:
+    # gating these behind "if not crashed" discards exactly the diagnostic that would tell whether
+    # a crash was an environment/library problem or the scaffold's own guard rails failing first
+    # (activity already blowing past the guard rail right before the exception). steps_completed
+    # (which step it died on) is reported for the same reason.
     print("\n" + "=" * 60)
     print("SUMMARY (paste this whole block back)")
     print("=" * 60)
@@ -115,11 +122,13 @@ def main() -> None:
     print(f"edges: {len(weights_df):,}")
     print(f"steps run: {args.n_steps}")
     print(f"crashed: {crashed}" + (f" ({crash_message})" if crashed else ""))
-    if not crashed:
-        print(f"activity stayed within guard rail [{params.activity_min}, {params.activity_max}]: {max_abs_membrane <= params.activity_max}")
-        print(f"max |membrane| observed: {max_abs_membrane}")
-        print(f"total spikes over the run: {total_spikes:,}")
-    print(f"elapsed: {elapsed:.2f}s ({elapsed / max(args.n_steps, 1) * 1000:.2f}ms/step)")
+    if crashed:
+        print(f"steps completed before crash: {steps_completed} / {args.n_steps}")
+    print(f"activity stayed within guard rail [{params.activity_min}, {params.activity_max}]: {max_abs_membrane <= params.activity_max}"
+          + (" (partial, before crash)" if crashed else ""))
+    print(f"max |membrane| observed: {max_abs_membrane}" + (" (partial, before crash)" if crashed else ""))
+    print(f"total spikes over the run: {total_spikes:,}" + (" (partial, before crash)" if crashed else ""))
+    print(f"elapsed: {elapsed:.2f}s ({elapsed / max(steps_completed, 1) * 1000:.2f}ms/step)")
 
 
 if __name__ == "__main__":
