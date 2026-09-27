@@ -228,22 +228,30 @@ it forward in time, spike by spike, for one fly.
 Done when: the scaffold runs one fly's full connectome forward in time, on a GPU, without
 crashing or blowing up, on made-up/neutral input — before it's asked to do anything sensible yet.
 
-**Status: logic tier done (2026-09-26, 169/169 tests passing), full-connectome GPU check pending.**
+**Status: DONE, 2026-09-27.** Both halves of Step 2's verification are complete.
 `flybrainflow/spiking/` (`connectivity.py`, `dynamics.py`, `simulator.py`) implements the LIF
 update rule described above: integer/fixed-point accumulation via the float64-exact-integer trick
 (see `dynamics.py`'s own docstring for why that's the actual determinism mechanism, not just
 `torch.use_deterministic_algorithms`), guard rails on membrane potential, refractory handling, and
-the "one shared weight matrix, many flies" batched-from-one shape. `torch` can't be installed in
-the sandbox this was built in (same class of allowlist gap as `pytest` earlier, not a problem with
-the approach) — every line was hand-traced against worked examples before being written, the
-non-torch (NumPy id-mapping) logic was actually run and confirmed, and the 18 new torch-dependent
-tests (`tests/test_spiking_connectivity.py`, `tests/test_spiking_dynamics.py`,
-`tests/test_spiking_simulator.py`) have since been run for real, on a real machine: 169/169 passing
-(one real bug caught and fixed on the first run — see `docs/JOURNAL.md`). `.github/workflows/tests.yml`
-updated to install the `brain` extra (`torch`) so these run in CI going forward, not just locally.
-`scripts/run_full_connectome_check.py` is the real, Kaggle-only, GPU version of Step 2's own "done
-when" criterion — this is the one thing still outstanding before this step is actually done. Pinned
-commit for that run: `1ef52e8`.
+the "one shared weight matrix, many flies" batched-from-one shape.
+
+Logic tier: 169/169 tests passing on a real machine (one real bug caught and fixed on the first
+run — see `docs/JOURNAL.md`). `.github/workflows/tests.yml` updated to install the `brain` extra
+(`torch`) so these run in CI going forward, not just locally.
+
+Full-connectome GPU tier: `scripts/run_full_connectome_check.py` run for real on Kaggle against the
+actual pulled MaleCNS data — 164,740 neurons, 25,568,639 edges, on an actual GPU, 200 spiking
+sub-steps, no crash, activity guard rail held, 2.94s total (14.71ms/step). Zero spikes and zero
+membrane activity in this run is expected, not a bug: the input was all-zero/neutral and the start
+state was all-zero, so there was nothing to drive a spike. This check only proves the machinery
+survives real scale on real hardware, per Step 2's own "done when" criterion — whether the brain
+does anything sensible is Step 3's job, with real sensory input.
+
+Run off the `main` branch at commit `e3861b4` (the repo needed to be flipped from Private to Public
+on GitHub first — anonymous pip/curl/gcsfs requests from Kaggle all 404 against a private repo,
+which looks identical to a wrong URL or a missing file; worth remembering if this ever needs
+re-running from a fresh Kaggle session). Full console output and the `SUMMARY` block are logged in
+`docs/JOURNAL.md`.
 
 ## Step 3 — The calibration gate
 
