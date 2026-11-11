@@ -11,6 +11,7 @@ __pycache__/
 .venv/
 venv/
 .pytest_cache/
+.superdesign/
 .ipynb_checkpoints/
 
 # Data and recordings — these live on Kaggle / object storage, not in git.

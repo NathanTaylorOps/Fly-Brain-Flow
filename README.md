@@ -1,8 +1,27 @@
 # Fly-Brain Flow
 
+**Arena Lab update:** a separate local stadium-style demo now supports 50–500
+independent behavioral agents, configurable exits, evacuation controls, wind and
+repellent transport, agent inspection and exported measurements. These crowds use
+an engineered behavioral controller, **not full connectome brains**. See
+[arena instructions](docs/ARENA_LAB.md) and the remaining
+[connectome scaling work](docs/CONNECTOME_SCALING.md).
+
+**Maze Lab update:** the local demo now opens a three-gate maze with adjustable
+wind, wall-respecting animated odor transport, and an explicitly labeled local
+odor-seeking behavior model. The real-connectome experiment remains selectable.
+See [maze instructions](docs/MAZE_LAB.md). Behavioral food-seeking is not a claim
+that the connectome navigation gate has passed.
+
+**Local live experiment added:** a stateful CPU LIF engine can now drive the arena
+from an existing filtered MaleCNS bundle, with browser stimulation, neural readouts,
+silencing, measured anatomy and reset. See [live demo instructions](docs/LIVE_DEMO.md).
+This is a neural-response prototype; the moved-food navigation and crowd gates below
+remain unfinished.
+
 [![tests](https://github.com/NathanTaylorOps/Fly-Brain-Flow/actions/workflows/tests.yml/badge.svg)](https://github.com/NathanTaylorOps/Fly-Brain-Flow/actions/workflows/tests.yml)
 
-*A crowd simulation where every agent is running a real fruit fly brain.*
+*Project goal: a crowd simulation where every agent runs real fruit fly neural wiring.*
 
 ![Two streams of agents crossing a corridor in the M0 playback viewer](assets/demo.png)
 

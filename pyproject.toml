@@ -21,6 +21,8 @@ dependencies = [
 dev = ["pytest>=7"]
 osm = ["osmnx>=1.9"]          # only for from_osm_bbox(); GeoJSON road files need nothing extra
 brain = ["torch>=2.2"]        # M1 onwards
+live = ["numba>=0.60", "numpy>=1.26,<2.4"]
+reference = ["brian2==2.9.0", "numpy>=1.26,<2"]
 data = ["neuprint-python>=0.4", "pyarrow>=14"]
 
 [tool.setuptools.packages.find]
